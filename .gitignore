@@ -1,0 +1,20 @@
+# Elixir / Mix
+alfred/_build/
+alfred/deps/
+alfred/*.ez
+alfred/alfred
+
+# Zig
+alfred/native/vault/zig-out/
+alfred/native/vault/.zig-cache/
+alfred/native/vault/zig-cache/
+
+# Julia
+alfred/native/brain/.julia/
+
+# Data (local user data, never commit)
+.alfred/
+
+# OS
+.DS_Store
+Thumbs.db
