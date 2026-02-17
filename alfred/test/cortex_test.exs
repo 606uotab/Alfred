@@ -74,6 +74,112 @@ defmodule Alfred.CortexTest do
     end
   end
 
+  describe "Alfred.Cortex.Port productivity_stats" do
+    test "productivity_stats with projects" do
+      projects = [
+        %{
+          "name" => "Alpha",
+          "tasks" => [
+            %{"status" => "done", "priority" => 1, "description" => "A"},
+            %{"status" => "done", "priority" => 2, "description" => "B"},
+            %{"status" => "pending", "priority" => 4, "description" => "C"}
+          ],
+          "reminders" => [
+            %{"status" => "pending", "due_at" => 0, "text" => "Overdue"}
+          ]
+        },
+        %{
+          "name" => "Beta",
+          "tasks" => [
+            %{"status" => "pending", "priority" => 1, "description" => "D"}
+          ],
+          "reminders" => []
+        }
+      ]
+
+      result = Alfred.Cortex.Port.send_command(%{cmd: "productivity_stats", projects: projects})
+      assert {:ok, resp} = result
+      stats = resp["stats"]
+      assert stats["total_done"] == 2
+      assert stats["total_pending"] == 2
+      assert stats["overall_completion"] == 50.0
+      assert stats["overdue_count"] == 1
+      assert is_binary(stats["one_liner"])
+      assert is_list(stats["project_health"])
+    end
+
+    test "productivity_stats with empty projects" do
+      result = Alfred.Cortex.Port.send_command(%{cmd: "productivity_stats", projects: []})
+      assert {:ok, resp} = result
+      assert resp["stats"]["overall_completion"] == 0
+    end
+  end
+
+  describe "Alfred.Cortex.Port culture_trends" do
+    test "culture_trends with entries" do
+      culture = [
+        %{"topic" => "botanique", "content" => "Orchidées", "source" => %{"type" => "person", "name" => "Annie"}, "tags" => ["plantes"], "learned_at" => "2026-02-10T10:00:00Z"},
+        %{"topic" => "botanique", "content" => "Roses", "source" => %{"type" => "person", "name" => "Annie"}, "tags" => ["plantes", "jardin"], "learned_at" => "2026-02-15T10:00:00Z"},
+        %{"topic" => "cuisine", "content" => "Risotto", "source" => %{"type" => "book", "name" => "Recettes"}, "tags" => ["recettes"], "learned_at" => "2026-02-17T10:00:00Z"}
+      ]
+
+      result = Alfred.Cortex.Port.send_command(%{cmd: "culture_trends", culture: culture})
+      assert {:ok, resp} = result
+      trends = resp["trends"]
+      assert trends["total"] == 3
+      assert trends["topic_count"] == 2
+      assert is_binary(trends["one_liner"])
+      assert trends["growth_trend"] in ["stable", "accelerating", "decelerating"]
+    end
+
+    test "culture_trends with empty culture" do
+      result = Alfred.Cortex.Port.send_command(%{cmd: "culture_trends", culture: []})
+      assert {:ok, resp} = result
+      assert resp["trends"]["total"] == 0
+    end
+  end
+
+  describe "Alfred.Cortex.Port correlation_analysis" do
+    test "correlation_analysis detects shared topics" do
+      episodes = [
+        %{"message_count" => 5, "topics" => ["botanique", "jardin"]},
+        %{"message_count" => 3, "topics" => ["cuisine"]}
+      ]
+
+      projects = [
+        %{"name" => "Jardin", "notes" => [%{"text" => "Notes sur le jardin botanique"}]}
+      ]
+
+      culture = [
+        %{"topic" => "botanique", "content" => "Orchidées", "tags" => ["plantes"]}
+      ]
+
+      result = Alfred.Cortex.Port.send_command(%{
+        cmd: "correlation_analysis",
+        episodes: episodes,
+        projects: projects,
+        culture: culture
+      })
+
+      assert {:ok, resp} = result
+      assert is_list(resp["correlations"])
+      assert is_list(resp["insights"])
+      assert is_binary(resp["one_liner"])
+    end
+
+    test "correlation_analysis with empty data" do
+      result = Alfred.Cortex.Port.send_command(%{
+        cmd: "correlation_analysis",
+        episodes: [],
+        projects: [],
+        culture: []
+      })
+
+      assert {:ok, resp} = result
+      assert is_list(resp["insights"])
+    end
+  end
+
   describe "alfred_health cortex and mistral checks" do
     test "cortex check returns R status" do
       info = :alfred_health.check_cortex()
