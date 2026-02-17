@@ -702,6 +702,219 @@ function cmd_briefing(input)
 end
 
 # ============================================================
+# Analyze Culture — Intelligence culturelle
+# ============================================================
+
+function cmd_analyze_culture(input)
+    culture = get(input, "culture", [])
+    now_ts = get(input, "now", round(Int, time()))
+
+    insights = String[]
+    stats = Dict{String,Any}()
+
+    if isempty(culture)
+        push!(insights, "Votre culture est encore vierge, Monsieur. Utilisez 'alfred culture learn' pour m'enseigner.")
+        stats["total"] = 0
+        respond(Dict{String,Any}("insights" => insights, "stats" => stats, "topics" => Dict{String,Any}[], "suggestions" => String[]))
+        return
+    end
+
+    total = length(culture)
+    stats["total"] = total
+
+    # -- Topic distribution --
+    topic_counts = Dict{String,Int}()
+    topic_entries = Dict{String,Vector{Any}}()
+    for entry in culture
+        topic = get(entry, "topic", "divers")
+        topic_counts[topic] = get(topic_counts, topic, 0) + 1
+        if !haskey(topic_entries, topic)
+            topic_entries[topic] = []
+        end
+        push!(topic_entries[topic], entry)
+    end
+
+    stats["topic_count"] = length(topic_counts)
+    sorted_topics = sort(collect(topic_counts), by=x -> -x[2])
+
+    topics_data = Dict{String,Any}[]
+    for (topic, count) in sorted_topics
+        td = Dict{String,Any}("name" => topic, "count" => count)
+
+        # Sources for this topic
+        entries = topic_entries[topic]
+        sources = Dict{String,Int}()
+        for e in entries
+            src = get(e, "source", nothing)
+            if src !== nothing
+                sname = get(src, "name", get(src, "type", "inconnu"))
+                sources[sname] = get(sources, sname, 0) + 1
+            end
+        end
+        if !isempty(sources)
+            td["sources"] = sources
+        end
+
+        # Tags for this topic
+        all_tags = String[]
+        for e in entries
+            tags = get(e, "tags", [])
+            for t in tags
+                push!(all_tags, string(t))
+            end
+        end
+        if !isempty(all_tags)
+            tag_freq = Dict{String,Int}()
+            for t in all_tags
+                tag_freq[t] = get(tag_freq, t, 0) + 1
+            end
+            td["top_tags"] = [p[1] for p in sort(collect(tag_freq), by=x -> -x[2])[1:min(5, length(tag_freq))]]
+        end
+
+        push!(topics_data, td)
+    end
+
+    # -- Source attribution --
+    source_counts = Dict{String,Int}()
+    source_types = Dict{String,Int}()
+    for entry in culture
+        src = get(entry, "source", nothing)
+        if src !== nothing
+            stype = get(src, "type", "other")
+            source_types[stype] = get(source_types, stype, 0) + 1
+            sname = get(src, "name", "")
+            if sname != ""
+                source_counts[sname] = get(source_counts, sname, 0) + 1
+            end
+        end
+    end
+
+    stats["source_types"] = source_types
+    if !isempty(source_counts)
+        sorted_sources = sort(collect(source_counts), by=x -> -x[2])
+        top_sources = sorted_sources[1:min(5, length(sorted_sources))]
+        stats["top_sources"] = [Dict("name" => s[1], "count" => s[2]) for s in top_sources]
+    end
+
+    # -- Tag co-occurrence (connections between topics) --
+    tag_topics = Dict{String,Set{String}}()
+    for entry in culture
+        topic = get(entry, "topic", "divers")
+        tags = get(entry, "tags", [])
+        for t in tags
+            ts = string(t)
+            if !haskey(tag_topics, ts)
+                tag_topics[ts] = Set{String}()
+            end
+            push!(tag_topics[ts], topic)
+        end
+    end
+
+    connections = String[]
+    for (tag, topics_set) in tag_topics
+        if length(topics_set) > 1
+            topics_list = sort(collect(topics_set))
+            push!(connections, "Le tag \"$(tag)\" relie : $(join(topics_list, ", "))")
+        end
+    end
+    stats["connections"] = connections
+
+    # -- Temporal analysis --
+    recent_count = 0
+    old_count = 0
+    for entry in culture
+        learned_at = get(entry, "learned_at", "")
+        if learned_at != ""
+            try
+                dt = DateTime(learned_at[1:min(19, length(learned_at))])
+                age_days = (now_ts - round(Int, datetime2unix(dt))) / 86400
+                if age_days <= 7
+                    recent_count += 1
+                elseif age_days > 30
+                    old_count += 1
+                end
+            catch
+            end
+        end
+    end
+    stats["recent_7d"] = recent_count
+    stats["older_30d"] = old_count
+
+    # -- Generate insights --
+    push!(insights, "$(total) connaissances réparties sur $(length(topic_counts)) sujet(s).")
+
+    if length(sorted_topics) > 0
+        top_topic = sorted_topics[1]
+        push!(insights, "Sujet le plus riche : \"$(top_topic[1])\" ($(top_topic[2]) entrée(s)).")
+    end
+
+    if length(sorted_topics) > 1
+        smallest = sorted_topics[end]
+        if smallest[2] == 1
+            push!(insights, "Sujet à développer : \"$(smallest[1])\" (1 seule entrée).")
+        end
+    end
+
+    if !isempty(source_counts)
+        top_src = sort(collect(source_counts), by=x -> -x[2])[1]
+        push!(insights, "Source la plus fréquente : $(top_src[1]) ($(top_src[2]) contributions).")
+    end
+
+    person_count = get(source_types, "person", 0)
+    book_count = get(source_types, "book", 0)
+    observation_count = get(source_types, "observation", 0)
+    if person_count > book_count + observation_count
+        push!(insights, "Votre culture provient majoritairement de personnes. Pensez à diversifier vos sources.")
+    end
+
+    if !isempty(connections)
+        push!(insights, "$(length(connections)) connexion(s) thématique(s) détectée(s) via les tags.")
+    end
+
+    if recent_count > 0
+        push!(insights, "$(recent_count) connaissance(s) acquise(s) cette semaine. Bonne dynamique !")
+    elseif total > 5
+        push!(insights, "Aucune connaissance récente. N'hésitez pas à m'enseigner de nouvelles choses.")
+    end
+
+    # -- Suggestions --
+    suggestions = String[]
+
+    # Suggest topics to explore based on gaps
+    if length(sorted_topics) >= 2
+        avg_count = total / length(sorted_topics)
+        for (topic, count) in sorted_topics
+            if count < avg_count * 0.5 && count <= 2
+                push!(suggestions, "Approfondir le sujet \"$(topic)\" (seulement $(count) entrée(s)).")
+            end
+        end
+    end
+
+    # Suggest source diversification
+    if length(source_types) == 1
+        only_type = first(keys(source_types))
+        push!(suggestions, "Diversifiez vos sources — tout provient de type \"$(only_type)\".")
+    end
+
+    # Suggest tag usage
+    entries_without_tags = count(e -> isempty(get(e, "tags", [])), culture)
+    if entries_without_tags > total * 0.5
+        push!(suggestions, "Ajoutez des tags à vos connaissances pour mieux les relier entre elles.")
+    end
+
+    if isempty(suggestions)
+        push!(suggestions, "Votre culture est bien organisée, Monsieur. Continuez ainsi.")
+    end
+
+    respond(Dict{String,Any}(
+        "insights" => insights,
+        "stats" => stats,
+        "topics" => topics_data,
+        "suggestions" => suggestions
+    ))
+end
+
+# ============================================================
 # Main Loop
 # ============================================================
 
@@ -728,6 +941,8 @@ function main()
                 cmd_detect_patterns(input)
             elseif cmd == "briefing"
                 cmd_briefing(input)
+            elseif cmd == "analyze_culture"
+                cmd_analyze_culture(input)
             else
                 respond_error("Unknown command: $cmd")
             end

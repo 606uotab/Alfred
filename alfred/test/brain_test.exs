@@ -295,6 +295,114 @@ defmodule Alfred.BrainTest do
     end
   end
 
+  describe "Alfred.Brain.Port analyze_culture" do
+    test "analyze_culture with empty culture" do
+      result = Alfred.Brain.Port.send_command(%{
+        cmd: "analyze_culture",
+        culture: [],
+        now: System.system_time(:second)
+      })
+
+      assert {:ok, resp} = result
+      assert resp["status"] == "ok"
+      assert resp["stats"]["total"] == 0
+      assert is_list(resp["insights"])
+      assert Enum.any?(resp["insights"], &(&1 =~ "vierge"))
+    end
+
+    test "analyze_culture with rich data" do
+      culture = [
+        %{
+          "topic" => "botanique",
+          "content" => "Les orchidées ont besoin de lumière",
+          "source" => %{"type" => "person", "name" => "Annie"},
+          "tags" => ["plantes", "entretien"],
+          "learned_at" => "2026-02-17T10:00:00Z"
+        },
+        %{
+          "topic" => "botanique",
+          "content" => "Les roses aiment le soleil",
+          "source" => %{"type" => "person", "name" => "Annie"},
+          "tags" => ["plantes", "jardin"],
+          "learned_at" => "2026-02-16T10:00:00Z"
+        },
+        %{
+          "topic" => "cuisine",
+          "content" => "Le risotto demande de la patience",
+          "source" => %{"type" => "book", "name" => "L'Art Culinaire"},
+          "tags" => ["recettes"],
+          "learned_at" => "2026-01-10T10:00:00Z"
+        },
+        %{
+          "topic" => "histoire",
+          "content" => "La Révolution française a commencé en 1789",
+          "source" => %{"type" => "observation", "name" => ""},
+          "tags" => ["plantes"],
+          "learned_at" => "2026-02-15T10:00:00Z"
+        }
+      ]
+
+      result = Alfred.Brain.Port.send_command(%{
+        cmd: "analyze_culture",
+        culture: culture,
+        now: System.system_time(:second)
+      })
+
+      assert {:ok, resp} = result
+      assert resp["stats"]["total"] == 4
+      assert resp["stats"]["topic_count"] == 3
+      assert is_list(resp["topics"])
+      assert length(resp["topics"]) == 3
+      assert is_list(resp["suggestions"])
+      # botanique has 2 entries, should be top topic
+      top = Enum.at(resp["topics"], 0)
+      assert top["name"] == "botanique"
+      assert top["count"] == 2
+      # connections via "plantes" tag (botanique + histoire)
+      assert length(resp["stats"]["connections"]) > 0
+    end
+
+    test "analyze_culture detects source concentration" do
+      culture = [
+        %{"topic" => "A", "content" => "x", "source" => %{"type" => "person", "name" => "Bob"}, "tags" => [], "learned_at" => "2026-02-17T10:00:00Z"},
+        %{"topic" => "B", "content" => "y", "source" => %{"type" => "person", "name" => "Bob"}, "tags" => [], "learned_at" => "2026-02-17T10:00:00Z"},
+        %{"topic" => "C", "content" => "z", "source" => %{"type" => "person", "name" => "Bob"}, "tags" => [], "learned_at" => "2026-02-17T10:00:00Z"}
+      ]
+
+      result = Alfred.Brain.Port.send_command(%{
+        cmd: "analyze_culture",
+        culture: culture,
+        now: System.system_time(:second)
+      })
+
+      assert {:ok, resp} = result
+      # All from "person" type → insight about diversification
+      assert Enum.any?(resp["insights"], &(&1 =~ "diversifier"))
+    end
+  end
+
+  describe "Alfred.Brain.Commands analyze_culture CLI" do
+    test "handle_analyze_culture with data" do
+      culture_data = [
+        %{
+          "topic" => "test",
+          "content" => "Contenu test",
+          "source" => %{"type" => "person", "name" => "Alice"},
+          "tags" => ["demo"],
+          "learned_at" => "2026-02-17T10:00:00Z"
+        }
+      ]
+
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          Alfred.Brain.Commands.handle_analyze_culture(culture_data)
+        end)
+
+      assert output =~ "analyse"
+      assert output =~ "culture"
+    end
+  end
+
   describe "alfred_health brain check" do
     test "brain check returns julia status" do
       info = :alfred_health.check_brain()

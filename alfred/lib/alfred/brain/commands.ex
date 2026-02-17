@@ -141,6 +141,130 @@ defmodule Alfred.Brain.Commands do
     end
   end
 
+  @doc """
+  Analyse intelligente de la culture — croise sujets, sources, tags, temporalité.
+  Nécessite le mot de passe pour lire le vault culture.
+  """
+  def handle_analyze_culture do
+    password = Alfred.Input.prompt_password("Mot de passe (maître ou admin) : ")
+
+    case Alfred.Culture.list_all(password) do
+      {:ok, entries} ->
+        Butler.say("Analyse de votre culture en cours...\n")
+
+        culture_data =
+          Enum.map(entries, fn e ->
+            %{
+              "topic" => e["topic"],
+              "content" => e["content"],
+              "source" => e["source"],
+              "tags" => e["tags"] || [],
+              "learned_at" => e["learned_at"]
+            }
+          end)
+
+        case Brain.send_command(%{cmd: "analyze_culture", culture: culture_data, now: now()}) do
+          {:ok, resp} ->
+            print_culture_analysis(resp)
+
+          {:error, msg} ->
+            Butler.say("Je suis navré Monsieur, mon cerveau rencontre une difficulté : #{msg}")
+        end
+
+      {:error, "Wrong password"} ->
+        Butler.say("Mot de passe incorrect, Monsieur.")
+
+      {:error, msg} ->
+        Butler.say("Impossible d'accéder à la culture : #{msg}")
+    end
+  end
+
+  @doc """
+  Analyse culture avec données pré-chargées (pour tests ou mode chat).
+  """
+  def handle_analyze_culture(culture_data) when is_list(culture_data) do
+    case Brain.send_command(%{cmd: "analyze_culture", culture: culture_data, now: now()}) do
+      {:ok, resp} ->
+        print_culture_analysis(resp)
+
+      {:error, msg} ->
+        Butler.say("Je suis navré Monsieur, mon cerveau rencontre une difficulté : #{msg}")
+    end
+  end
+
+  defp print_culture_analysis(resp) do
+    insights = Map.get(resp, "insights", [])
+    topics = Map.get(resp, "topics", [])
+    suggestions = Map.get(resp, "suggestions", [])
+    stats = Map.get(resp, "stats", %{})
+
+    Butler.say("Monsieur, voici mon analyse de votre culture :\n")
+
+    # Insights
+    Enum.each(insights, fn insight ->
+      IO.puts("  💡 #{insight}")
+    end)
+
+    IO.puts("")
+
+    # Topics detail
+    if length(topics) > 0 do
+      IO.puts("  📚 Sujets :")
+      IO.puts("  #{String.duplicate("─", 40)}")
+
+      Enum.each(topics, fn topic ->
+        name = Map.get(topic, "name", "?")
+        count = Map.get(topic, "count", 0)
+        IO.puts("    #{name} (#{count})")
+
+        # Sources
+        sources = Map.get(topic, "sources", %{})
+
+        if map_size(sources) > 0 do
+          src_str =
+            sources
+            |> Enum.map(fn {name, count} -> "#{name} (#{count})" end)
+            |> Enum.join(", ")
+
+          IO.puts("      Sources : #{src_str}")
+        end
+
+        # Tags
+        tags = Map.get(topic, "top_tags", [])
+
+        if length(tags) > 0 do
+          IO.puts("      Tags : #{Enum.join(tags, ", ")}")
+        end
+      end)
+
+      IO.puts("")
+    end
+
+    # Connections
+    connections = Map.get(stats, "connections", [])
+
+    if length(connections) > 0 do
+      IO.puts("  🔗 Connexions :")
+
+      Enum.each(connections, fn c ->
+        IO.puts("    #{c}")
+      end)
+
+      IO.puts("")
+    end
+
+    # Suggestions
+    if length(suggestions) > 0 do
+      IO.puts("  🧠 Suggestions :")
+
+      Enum.each(suggestions, fn s ->
+        IO.puts("    #{s}")
+      end)
+
+      IO.puts("")
+    end
+  end
+
   # -- Data collectors for briefing --
 
   defp collect_all_projects do
