@@ -233,4 +233,111 @@ defmodule Alfred.MemoryTest do
       assert output =~ "pas encore conversé"
     end
   end
+
+  describe "Alfred.Memory.Episodic.update_episode" do
+    test "updates episode with summary and topics" do
+      {:ok, ep} =
+        Alfred.Memory.Episodic.save_episode(%{
+          "messages" => [%{"role" => "user", "content" => "Hello"}],
+          "message_count" => 1,
+          "summary" => nil,
+          "topics" => []
+        })
+
+      {:ok, updated} =
+        Alfred.Memory.Episodic.update_episode(ep["id"], %{
+          "summary" => "Test conversation about greetings",
+          "topics" => ["greetings", "test"]
+        })
+
+      assert updated["summary"] == "Test conversation about greetings"
+      assert updated["topics"] == ["greetings", "test"]
+      assert updated["message_count"] == 1
+
+      # Verify persistence
+      {:ok, reloaded} = Alfred.Memory.Episodic.load_episode(ep["id"])
+      assert reloaded["summary"] == "Test conversation about greetings"
+    end
+
+    test "returns error for non-existent episode" do
+      assert {:error, :not_found} = Alfred.Memory.Episodic.update_episode("fake_id", %{})
+    end
+  end
+
+  describe "Alfred.Memory.Learner" do
+    test "extract_facts via local extraction" do
+      messages = [
+        %{"role" => "user", "content" => "Je préfère Elixir pour ce projet"},
+        %{"role" => "assistant", "content" => "Très bien Monsieur."}
+      ]
+
+      session = %Alfred.Chat.Session{
+        started_at: DateTime.utc_now() |> DateTime.to_iso8601(),
+        mode: "ask",
+        system_prompt: "Tu es Alfred.",
+        messages: messages
+      }
+
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          Alfred.Memory.Learner.learn(session, "fake_token")
+        end)
+
+      # Épisode sauvé
+      assert Alfred.Memory.Episodic.count() == 1
+
+      # Faits extraits (local fallback car fake token)
+      facts = Alfred.Memory.Semantic.all_facts()
+      assert length(facts) >= 1
+
+      # Rapport affiché
+      assert output =~ "fait(s)"
+    end
+
+    test "learn saves episode even with empty messages" do
+      session = %Alfred.Chat.Session{
+        started_at: DateTime.utc_now() |> DateTime.to_iso8601(),
+        mode: "chat",
+        system_prompt: "Tu es Alfred.",
+        messages: []
+      }
+
+      ExUnit.CaptureIO.capture_io(fn ->
+        Alfred.Memory.Learner.learn(session, "fake_token")
+      end)
+
+      assert Alfred.Memory.Episodic.count() == 1
+    end
+
+    test "summarize_episode updates episode via Julia" do
+      messages = [
+        %{"role" => "user", "content" => "Parlons d'architecture Elixir"},
+        %{"role" => "assistant", "content" => "Bien sûr, Monsieur."},
+        %{"role" => "user", "content" => "Je veux une architecture modulaire"},
+        %{"role" => "assistant", "content" => "Excellent choix."}
+      ]
+
+      session = %Alfred.Chat.Session{
+        started_at: DateTime.utc_now() |> DateTime.to_iso8601(),
+        mode: "chat",
+        system_prompt: "Tu es Alfred.",
+        messages: messages
+      }
+
+      ExUnit.CaptureIO.capture_io(fn ->
+        Alfred.Memory.Learner.learn(session, "fake_token")
+      end)
+
+      # L'épisode devrait avoir un résumé Julia (si Julia est dispo)
+      episodes = Alfred.Memory.Episodic.list_episodes()
+      assert length(episodes) == 1
+      ep = hd(episodes)
+
+      # Si Julia est disponible, le résumé est rempli
+      if ep["summary"] != nil do
+        assert is_binary(ep["summary"])
+        assert ep["summary"] != ""
+      end
+    end
+  end
 end

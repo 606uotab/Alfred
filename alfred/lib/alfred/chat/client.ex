@@ -6,6 +6,8 @@ defmodule Alfred.Chat.Client do
 
   @api_url ~c"https://api.mistral.ai/v1/chat/completions"
   @default_model "mistral-small-latest"
+  @default_temperature 0.3
+  @default_max_tokens 1024
   @timeout 60_000
 
   @doc """
@@ -15,16 +17,20 @@ defmodule Alfred.Chat.Client do
   def chat_completion(token, messages, opts \\ []) do
     ensure_http_started()
     model = Keyword.get(opts, :model, @default_model)
+    temperature = Keyword.get(opts, :temperature, @default_temperature)
+    max_tokens = Keyword.get(opts, :max_tokens, @default_max_tokens)
 
     payload =
       Jason.encode!(%{
         model: model,
-        messages: messages
+        messages: messages,
+        temperature: temperature,
+        max_tokens: max_tokens
       })
 
     headers = [
       {~c"Authorization", String.to_charlist("Bearer #{token}")},
-      {~c"Content-Type", ~c"application/json"}
+      {~c"Accept", ~c"application/json"}
     ]
 
     http_opts = [
@@ -36,16 +42,9 @@ defmodule Alfred.Chat.Client do
       ]
     ]
 
-    case :httpc.request(:post, {@api_url, headers, ~c"application/json", String.to_charlist(payload)}, http_opts, []) do
+    case :httpc.request(:post, {@api_url, headers, ~c"application/json", payload}, http_opts, body_format: :binary) do
       {:ok, {{_, 200, _}, _headers, body}} ->
-        response = Jason.decode!(List.to_string(body))
-        content = get_in(response, ["choices", Access.at(0), "message", "content"])
-
-        if content do
-          {:ok, content}
-        else
-          {:error, "Réponse Mistral invalide"}
-        end
+        parse_response(body)
 
       {:ok, {{_, 401, _}, _headers, _body}} ->
         {:error, "Token Mistral invalide ou expiré"}
@@ -54,10 +53,37 @@ defmodule Alfred.Chat.Client do
         {:error, "Limite de requêtes Mistral atteinte. Réessayez plus tard."}
 
       {:ok, {{_, status, _}, _headers, body}} ->
-        {:error, "Erreur Mistral HTTP #{status}: #{List.to_string(body) |> String.slice(0, 200)}"}
+        {:error, "Erreur Mistral HTTP #{status}: #{String.slice(body, 0, 200)}"}
 
       {:error, reason} ->
         {:error, "Erreur de connexion : #{inspect(reason)}"}
+    end
+  end
+
+  # -- Parsing de la réponse --
+
+  defp parse_response(body) do
+    response = Jason.decode!(body)
+    content = get_in(response, ["choices", Access.at(0), "message", "content"])
+
+    case content do
+      nil ->
+        {:error, "Réponse Mistral invalide"}
+
+      text when is_binary(text) ->
+        {:ok, text}
+
+      parts when is_list(parts) ->
+        # Le content peut être une liste d'objets [{type: "text", text: "..."}]
+        text =
+          parts
+          |> Enum.filter(&(is_map(&1) and &1["type"] == "text"))
+          |> Enum.map_join("\n", & &1["text"])
+
+        if text != "", do: {:ok, text}, else: {:error, "Réponse Mistral vide"}
+
+      _ ->
+        {:error, "Format de réponse Mistral inattendu"}
     end
   end
 

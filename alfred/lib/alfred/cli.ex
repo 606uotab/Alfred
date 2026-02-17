@@ -416,12 +416,14 @@ defmodule Alfred.CLI do
       alfred status                              Vue d'ensemble
 
       alfred vault init                          Créer le coffre-fort
-      alfred vault store <clé> [valeur]          Stocker un secret
-      alfred vault get <clé>                     Récupérer un secret
+      alfred vault store mistral_api_key         Stocker la clé Mistral
+      alfred vault store <nom> [valeur]          Stocker un secret
+      alfred vault get <nom>                     Récupérer un secret
       alfred vault list                          Lister les clés secrètes
       alfred vault delete <clé>                  Supprimer un secret
       alfred vault note <texte>                  Note confidentielle chiffrée
       alfred vault notes                         Lister les notes chiffrées
+      alfred vault destroy                       Détruire le coffre-fort
 
       alfred chat                                Conversation interactive
       alfred ask <question>                       Question ponctuelle

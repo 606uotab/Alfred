@@ -156,31 +156,43 @@ defmodule Alfred.Vault.Commands do
     end
   end
 
+  def handle(["destroy"]) do
+    vault = Alfred.Vault.Port.vault_path()
+
+    unless File.exists?(vault) do
+      Butler.say("Monsieur, il n'y a aucun coffre-fort à détruire.")
+    else
+      confirm = IO.gets("Détruire le coffre-fort et TOUS ses secrets ? (oui/non) : ") |> String.trim()
+
+      if confirm == "oui" do
+        File.rm!(vault)
+        Butler.say("Le coffre-fort a été détruit, Monsieur. Tous les secrets sont perdus.")
+      else
+        Butler.say("Destruction annulée, Monsieur.")
+      end
+    end
+  end
+
   def handle(_) do
     Butler.say("Monsieur, les commandes du coffre-fort sont :\n")
 
     IO.puts("""
       alfred vault init               Créer le coffre-fort
-      alfred vault store <clé> [val]   Stocker un secret
-      alfred vault get <clé>           Récupérer un secret
+      alfred vault store mistral_api_key  Stocker la clé Mistral
+      alfred vault store <nom> [val]   Stocker un secret
+      alfred vault get <nom>           Récupérer un secret
       alfred vault list                Lister les clés
       alfred vault delete <clé>        Supprimer un secret
       alfred vault note <texte>        Ajouter une note chiffrée
       alfred vault notes               Lister les notes chiffrées
+      alfred vault destroy             Détruire le coffre-fort
     """)
   end
 
   # -- Helpers --
 
-  defp prompt_password(prompt) do
-    IO.write(prompt)
-    IO.gets("") |> String.trim()
-  end
-
-  defp prompt_secret(prompt) do
-    IO.write(prompt)
-    IO.gets("") |> String.trim()
-  end
+  defp prompt_password(prompt), do: Alfred.Input.prompt_password(prompt)
+  defp prompt_secret(prompt), do: Alfred.Input.prompt_secret(prompt)
 
   defp format_timestamp(ts) when is_integer(ts) do
     case DateTime.from_unix(ts) do

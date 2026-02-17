@@ -106,6 +106,22 @@ defmodule Alfred.Memory.Episodic do
   end
 
   @doc """
+  Met à jour un épisode existant (merge des champs).
+  """
+  def update_episode(id, updates) when is_map(updates) do
+    path = Path.join([Alfred.data_dir(), @episodes_dir, "#{id}.json"])
+
+    if File.exists?(path) do
+      data = path |> File.read!() |> Jason.decode!()
+      updated = Map.merge(data, updates)
+      File.write!(path, Jason.encode!(updated, pretty: true))
+      {:ok, updated}
+    else
+      {:error, :not_found}
+    end
+  end
+
+  @doc """
   Supprime un épisode.
   """
   def delete_episode(id) do

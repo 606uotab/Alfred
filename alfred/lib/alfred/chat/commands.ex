@@ -6,7 +6,7 @@ defmodule Alfred.Chat.Commands do
 
   alias Alfred.Butler
   alias Alfred.Chat.{Client, Session, SystemPrompt}
-  alias Alfred.Memory.{Episodic, Extractor, Semantic, Procedural}
+  alias Alfred.Memory.{Episodic, Learner, Semantic, Procedural}
 
   @doc """
   Mode chat interactif — boucle de conversation.
@@ -133,35 +133,11 @@ defmodule Alfred.Chat.Commands do
     end
   end
 
-  # -- Sauvegarde épisodique + extraction de faits --
+  # -- Apprentissage post-conversation --
 
   defp save_conversation(session, token) do
-    episode = Session.to_episode(session)
-    {:ok, saved} = Episodic.save_episode(episode)
-
-    messages = session.messages
-    extract_facts(messages, token, saved["id"])
+    Learner.learn(session, token)
   end
-
-  defp extract_facts([_, _ | _] = messages, token, _episode_id) do
-    # Tenter l'extraction via Mistral d'abord, fallback local
-    case Extractor.extract_via_mistral(messages, token) do
-      {:ok, [_ | _] = facts} ->
-        Butler.say("(#{length(facts)} fait(s) mémorisé(s))")
-
-      _ ->
-        # Fallback : extraction locale sans API
-        case Extractor.extract_local(messages) do
-          {:ok, [_ | _] = facts} ->
-            Butler.say("(#{length(facts)} fait(s) mémorisé(s))")
-
-          _ ->
-            :ok
-        end
-    end
-  end
-
-  defp extract_facts(_messages, _token, _episode_id), do: :ok
 
   # -- Récupération du token Mistral --
 
@@ -180,10 +156,11 @@ defmodule Alfred.Chat.Commands do
   end
 
   defp retrieve_from_vault do
-    password = prompt_password("Mot de passe du coffre-fort : ")
+    password = Alfred.Input.prompt_password("Mot de passe du coffre-fort : ")
 
     if password == "" do
-      {:error, "Monsieur, je ne peux converser sans accès au coffre-fort contenant ma clé Mistral."}
+      {:error,
+       "Monsieur, je ne peux converser sans accès au coffre-fort contenant ma clé Mistral.\nAstuce : export MISTRAL_API_KEY=votre_clé pour éviter le coffre-fort."}
     else
       case Alfred.Vault.Port.send_with_unlock(password, %{cmd: "get", key: "mistral_api_key"}) do
         {:ok, %{"value" => token}} when byte_size(token) > 0 ->
@@ -193,16 +170,12 @@ defmodule Alfred.Chat.Commands do
           {:error,
            "Monsieur, la clé 'mistral_api_key' est introuvable dans le coffre-fort.\nUtilisez : alfred vault store mistral_api_key"}
 
+        {:error, "Wrong password"} ->
+          {:error, "Mot de passe incorrect, Monsieur."}
+
         {:error, reason} ->
           {:error, "Impossible d'ouvrir le coffre-fort : #{reason}"}
       end
-    end
-  end
-
-  defp prompt_password(prompt) do
-    case IO.gets(prompt) do
-      :eof -> ""
-      input -> String.trim(input)
     end
   end
 end
