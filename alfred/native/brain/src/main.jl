@@ -915,6 +915,151 @@ function cmd_analyze_culture(input)
 end
 
 # ============================================================
+# Extract Culture — Extraction de connaissances depuis les conversations
+# ============================================================
+
+function cmd_extract_culture(input)
+    messages = get(input, "messages", [])
+
+    if isempty(messages)
+        respond(Dict{String,Any}("candidates" => Any[]))
+        return
+    end
+
+    candidates = Dict{String,Any}[]
+
+    # Collect user messages
+    user_texts = String[]
+    for msg in messages
+        if get(msg, "role", "") == "user"
+            push!(user_texts, get(msg, "content", ""))
+        end
+    end
+
+    # Also collect assistant messages (they contain reformulated knowledge)
+    assistant_texts = String[]
+    for msg in messages
+        if get(msg, "role", "") == "assistant"
+            push!(assistant_texts, get(msg, "content", ""))
+        end
+    end
+
+    all_text = join(vcat(user_texts, assistant_texts), "\n")
+
+    # Pattern 1: Factual statements with "c'est", "est un", "sont des"
+    factual_patterns = [
+        r"([\w\s]+)\s+(?:c'est|est un|est une|sont des|consiste à)\s+(.{10,120})"i,
+        r"(?:saviez.vous que|en fait|il paraît que|apparemment)\s+(.{15,150})"i,
+        r"(?:on m'a dit que|j'ai appris que|il faut savoir que)\s+(.{15,150})"i
+    ]
+
+    for text in user_texts
+        for pattern in factual_patterns
+            for m in eachmatch(pattern, text)
+                content = strip(m.match)
+                if length(content) > 15 && length(content) < 300
+                    # Try to infer topic from keywords
+                    topic = infer_topic(content)
+                    push!(candidates, Dict{String,Any}(
+                        "content" => content,
+                        "topic" => topic,
+                        "source_type" => "conversation",
+                        "confidence" => 0.5
+                    ))
+                end
+            end
+        end
+    end
+
+    # Pattern 2: Teaching statements (user explicitly teaching Alfred)
+    teach_patterns = [
+        r"(?:retiens que|souviens.toi que|note que|sache que)\s+(.{10,200})"i,
+        r"(?:pour ta culture|pour info|à savoir)\s*[:,]?\s*(.{10,200})"i
+    ]
+
+    for text in user_texts
+        for pattern in teach_patterns
+            for m in eachmatch(pattern, text)
+                content = strip(m.captures[1])
+                if length(content) > 10
+                    topic = infer_topic(content)
+                    push!(candidates, Dict{String,Any}(
+                        "content" => content,
+                        "topic" => topic,
+                        "source_type" => "person",
+                        "confidence" => 0.8
+                    ))
+                end
+            end
+        end
+    end
+
+    # Pattern 3: Definitions or explanations in assistant responses
+    explain_patterns = [
+        r"(?:en résumé|pour résumer|concrètement)\s*[:,]?\s*(.{20,200})"i
+    ]
+
+    for text in assistant_texts
+        for pattern in explain_patterns
+            for m in eachmatch(pattern, text)
+                content = strip(m.captures[1])
+                if length(content) > 20
+                    topic = infer_topic(content)
+                    push!(candidates, Dict{String,Any}(
+                        "content" => content,
+                        "topic" => topic,
+                        "source_type" => "conversation",
+                        "confidence" => 0.4
+                    ))
+                end
+            end
+        end
+    end
+
+    # Deduplicate by content similarity
+    unique_candidates = Dict{String,Any}[]
+    seen_content = Set{String}()
+    for c in candidates
+        normalized = lowercase(strip(get(c, "content", "")))
+        short = normalized[1:min(50, length(normalized))]
+        if !(short in seen_content)
+            push!(seen_content, short)
+            push!(unique_candidates, c)
+        end
+    end
+
+    # Limit to top 5 by confidence
+    sort!(unique_candidates, by=c -> -get(c, "confidence", 0))
+    result = unique_candidates[1:min(5, length(unique_candidates))]
+
+    respond(Dict{String,Any}("candidates" => result))
+end
+
+function infer_topic(text::AbstractString)
+    lt = lowercase(text)
+    topic_hints = Dict(
+        "cuisine" => ["recette", "cuisin", "manger", "plat", "ingrédient", "cuisson"],
+        "botanique" => ["plante", "fleur", "jardin", "arros", "orchidée", "rose", "arbre"],
+        "technologie" => ["code", "program", "logiciel", "ordinat", "serveur", "internet"],
+        "histoire" => ["histoi", "siècle", "guerre", "révolution", "époque", "ancien"],
+        "science" => ["scientif", "physique", "chimie", "biologie", "molécul", "atome"],
+        "musique" => ["musiqu", "chans", "mélodie", "instrum", "concert", "note"],
+        "santé" => ["santé", "médic", "maladie", "symptôm", "traitement", "médecin"],
+        "sport" => ["sport", "match", "équipe", "joueur", "entraîn", "compétit"]
+    )
+
+    for (topic, words) in topic_hints
+        for w in words
+            if occursin(w, lt)
+                return topic
+            end
+        end
+    end
+
+    return "divers"
+end
+
+# ============================================================
 # Prioritize — Priorisation intelligente des tâches
 # ============================================================
 
@@ -1252,6 +1397,8 @@ function main()
                 cmd_search(input)
             elseif cmd == "prioritize"
                 cmd_prioritize(input)
+            elseif cmd == "extract_culture"
+                cmd_extract_culture(input)
             else
                 respond_error("Unknown command: $cmd")
             end

@@ -587,6 +587,9 @@ defmodule Alfred.CLI do
       alfred culture learn <sujet> <contenu>     Enseigner une connaissance
       alfred culture search <mots>               Rechercher dans la culture
       alfred culture list                        Lister les connaissances
+      alfred culture suggestions                 Suggestions auto-extraites
+      alfred culture approve <id>                Approuver une suggestion
+      alfred culture dismiss <id>                Rejeter une suggestion
 
       alfred chat                                Conversation interactive
       alfred ask <question>                      Question ponctuelle

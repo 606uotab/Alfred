@@ -603,6 +603,86 @@ defmodule Alfred.BrainTest do
     end
   end
 
+  describe "Alfred.Brain.Port extract_culture" do
+    test "extract_culture with empty messages" do
+      result = Alfred.Brain.Port.send_command(%{cmd: "extract_culture", messages: []})
+
+      assert {:ok, resp} = result
+      assert resp["candidates"] == []
+    end
+
+    test "extract_culture detects teaching patterns" do
+      messages = [
+        %{"role" => "user", "content" => "Retiens que les orchidées ont besoin d'arrosage une fois par semaine"},
+        %{"role" => "assistant", "content" => "Bien noté, Monsieur. Les orchidées nécessitent un arrosage hebdomadaire."}
+      ]
+
+      result = Alfred.Brain.Port.send_command(%{cmd: "extract_culture", messages: messages})
+
+      assert {:ok, resp} = result
+      assert is_list(resp["candidates"])
+      assert length(resp["candidates"]) > 0
+      # Should detect the "retiens que" pattern
+      first = Enum.at(resp["candidates"], 0)
+      assert first["confidence"] >= 0.5
+    end
+
+    test "extract_culture detects factual statements" do
+      messages = [
+        %{"role" => "user", "content" => "Pour ta culture, le risotto se cuit à feu doux pendant 18 minutes minimum"},
+        %{"role" => "assistant", "content" => "Merci pour cette information culinaire, Monsieur."}
+      ]
+
+      result = Alfred.Brain.Port.send_command(%{cmd: "extract_culture", messages: messages})
+
+      assert {:ok, resp} = result
+      assert length(resp["candidates"]) > 0
+    end
+  end
+
+  describe "Alfred.Culture.Suggestions" do
+    setup do
+      # Clean suggestions file
+      suggestions_path = Path.join([System.user_home!(), ".alfred", "data", "culture_suggestions.json"])
+      File.rm(suggestions_path)
+      :ok
+    end
+
+    test "add and list pending suggestions" do
+      {:ok, s} = Alfred.Culture.Suggestions.add(%{
+        "content" => "Test suggestion",
+        "topic" => "test",
+        "source_type" => "conversation",
+        "confidence" => 0.5
+      })
+
+      assert s["id"] == 1
+      assert s["status"] == "pending"
+
+      pending = Alfred.Culture.Suggestions.list_pending()
+      assert length(pending) == 1
+    end
+
+    test "dismiss suggestion" do
+      {:ok, _} = Alfred.Culture.Suggestions.add(%{
+        "content" => "To dismiss",
+        "topic" => "test",
+        "source_type" => "conversation",
+        "confidence" => 0.3
+      })
+
+      assert :ok = Alfred.Culture.Suggestions.dismiss(1)
+      assert Alfred.Culture.Suggestions.count_pending() == 0
+    end
+
+    test "count pending" do
+      Alfred.Culture.Suggestions.add(%{"content" => "A", "topic" => "t", "source_type" => "conversation", "confidence" => 0.5})
+      Alfred.Culture.Suggestions.add(%{"content" => "B", "topic" => "t", "source_type" => "conversation", "confidence" => 0.5})
+
+      assert Alfred.Culture.Suggestions.count_pending() == 2
+    end
+  end
+
   describe "alfred_health brain check" do
     test "brain check returns julia status" do
       info = :alfred_health.check_brain()

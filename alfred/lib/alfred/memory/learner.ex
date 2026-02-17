@@ -33,11 +33,14 @@ defmodule Alfred.Memory.Learner do
     # 4. Détecter les patterns (si assez d'épisodes)
     detect_patterns()
 
-    # 5. Consolider via R (toutes les N conversations)
+    # 5. Extraire des suggestions de culture
+    culture_count = extract_culture_suggestions(messages)
+
+    # 6. Consolider via R (toutes les N conversations)
     maybe_consolidate()
 
     # Rapport discret
-    report(fact_count)
+    report(fact_count, culture_count)
   end
 
   # -- Étape 2 : Extraction de faits --
@@ -115,7 +118,35 @@ defmodule Alfred.Memory.Learner do
     end)
   end
 
-  # -- Étape 5 : Consolidation R (périodique) --
+  # -- Étape 5 : Extraction de suggestions culture --
+
+  defp extract_culture_suggestions(messages) when length(messages) >= 2 do
+    api_messages =
+      Enum.map(messages, fn msg ->
+        %{"role" => msg["role"], "content" => msg["content"]}
+      end)
+
+    case Brain.send_command(%{cmd: "extract_culture", messages: api_messages}) do
+      {:ok, %{"candidates" => candidates}} when is_list(candidates) and candidates != [] ->
+        Enum.each(candidates, fn candidate ->
+          Alfred.Culture.Suggestions.add(%{
+            "content" => candidate["content"],
+            "topic" => candidate["topic"] || "divers",
+            "source_type" => candidate["source_type"] || "conversation",
+            "confidence" => candidate["confidence"] || 0.5
+          })
+        end)
+
+        length(candidates)
+
+      _ ->
+        0
+    end
+  end
+
+  defp extract_culture_suggestions(_messages), do: 0
+
+  # -- Étape 6 : Consolidation R (périodique) --
 
   defp maybe_consolidate do
     episode_count = Episodic.count()
@@ -150,7 +181,7 @@ defmodule Alfred.Memory.Learner do
 
   # -- Rapport --
 
-  defp report(fact_count) do
+  defp report(fact_count, culture_count) do
     parts = []
 
     parts =
@@ -164,6 +195,11 @@ defmodule Alfred.Memory.Learner do
     parts =
       if pattern_count > 0,
         do: ["#{pattern_count} pattern(s)" | parts],
+        else: parts
+
+    parts =
+      if culture_count > 0,
+        do: ["#{culture_count} suggestion(s) culture" | parts],
         else: parts
 
     if parts != [] do
