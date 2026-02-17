@@ -1,6 +1,7 @@
 %%%-------------------------------------------------------------------
 %%% @doc Alfred Health Monitor — Diagnostic des organes d'Alfred.
 %%% Module Erlang pur qui vérifie l'état de chaque composant.
+%%% Mis à jour pour le système multi-vault (creator, users, culture).
 %%%-------------------------------------------------------------------
 -module(alfred_health).
 
@@ -32,27 +33,42 @@ check_beam() ->
         uptime_ms => WallClock
     }.
 
-%% @doc Check if the Zig vault binary is available.
+%% @doc Check if the Zig vault binary and vault files are available.
 check_vault() ->
-    %% Look for the vault binary relative to CWD
     Paths = [
         "native/vault/zig-out/bin/alfred-vault"
     ],
     Found = lists:any(fun(P) -> filelib:is_file(P) end, Paths),
     case Found of
         true ->
-            VaultFile = vault_file_path(),
-            HasVault = filelib:is_file(VaultFile),
+            VaultDir = vault_dir_path(),
+            CreatorExists = filelib:is_file(filename:join(VaultDir, "creator.enc")),
+            UsersExists = filelib:is_file(filename:join(VaultDir, "users.enc")),
+            CultureExists = filelib:is_file(filename:join(VaultDir, "culture.enc")),
+            AllExist = CreatorExists andalso UsersExists andalso CultureExists,
+            VaultCount = length([X || X <- [CreatorExists, UsersExists, CultureExists], X =:= true]),
+            %% Check for legacy vault too
+            LegacyExists = filelib:is_file(legacy_vault_path()),
             #{
                 status => ok,
                 binary_found => true,
-                vault_exists => HasVault
+                vault_exists => AllExist,
+                vault_count => VaultCount,
+                creator_exists => CreatorExists,
+                users_exists => UsersExists,
+                culture_exists => CultureExists,
+                legacy_exists => LegacyExists
             };
         false ->
             #{
                 status => warning,
                 binary_found => false,
-                vault_exists => false
+                vault_exists => false,
+                vault_count => 0,
+                creator_exists => false,
+                users_exists => false,
+                culture_exists => false,
+                legacy_exists => false
             }
     end.
 
@@ -131,12 +147,11 @@ check_cortex() ->
 
 %% @doc Check if Mistral API key is configured.
 check_mistral() ->
-    %% Check env var first
     case os:getenv("MISTRAL_API_KEY") of
         false ->
-            %% Check if vault file exists (key might be there)
-            VaultFile = vault_file_path(),
-            case filelib:is_file(VaultFile) of
+            %% Check if vault directory exists (key might be in creator vault)
+            VaultDir = vault_dir_path(),
+            case filelib:is_file(filename:join(VaultDir, "creator.enc")) of
                 true ->
                     #{status => ok, source => vault, configured => possible};
                 false ->
@@ -154,6 +169,10 @@ data_dir() ->
     Home = os:getenv("HOME"),
     filename:join([Home, ".alfred", "data"]).
 
-vault_file_path() ->
+vault_dir_path() ->
+    Home = os:getenv("HOME"),
+    filename:join([Home, ".alfred", "vaults"]).
+
+legacy_vault_path() ->
     Home = os:getenv("HOME"),
     filename:join([Home, ".alfred", "vault.enc"]).

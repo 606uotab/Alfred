@@ -3,12 +3,54 @@ const vault_mod = @import("vault.zig");
 const Vault = vault_mod.Vault;
 const Note = vault_mod.Note;
 
+const vault_names = [_][]const u8{ "creator", "users", "culture" };
+
 const Command = struct {
     cmd: []const u8,
+    vault: ?[]const u8 = null,
     password: ?[]const u8 = null,
     key: ?[]const u8 = null,
     value: ?[]const u8 = null,
     text: ?[]const u8 = null,
+};
+
+const VaultManager = struct {
+    allocator: std.mem.Allocator,
+    vault_dir: []const u8,
+    vaults: [3]Vault,
+
+    fn init(allocator: std.mem.Allocator, vault_dir: []const u8) VaultManager {
+        var mgr = VaultManager{
+            .allocator = allocator,
+            .vault_dir = vault_dir,
+            .vaults = undefined,
+        };
+        for (vault_names, 0..) |name, i| {
+            const path = std.fmt.allocPrint(allocator, "{s}/{s}.enc", .{ vault_dir, name }) catch unreachable;
+            mgr.vaults[i] = Vault.init(allocator, path);
+        }
+        return mgr;
+    }
+
+    fn deinit(self: *VaultManager) void {
+        for (&self.vaults) |*v| {
+            v.lock();
+            self.allocator.free(@constCast(v.vault_path));
+        }
+    }
+
+    fn getVault(self: *VaultManager, name: []const u8) ?*Vault {
+        for (vault_names, 0..) |vn, i| {
+            if (std.mem.eql(u8, vn, name)) return &self.vaults[i];
+        }
+        return null;
+    }
+
+    fn ensureDir(self: *VaultManager) !void {
+        std.fs.makeDirAbsolute(self.vault_dir) catch |err| {
+            if (err != error.PathAlreadyExists) return err;
+        };
+    }
 };
 
 pub fn main() !void {
@@ -20,12 +62,12 @@ pub fn main() !void {
     defer std.process.argsFree(allocator, args);
 
     if (args.len < 2) {
-        try std.io.getStdErr().writer().writeAll("Usage: alfred-vault <vault-path>\n");
+        try std.io.getStdErr().writer().writeAll("Usage: alfred-vault <vault-dir>\n");
         std.process.exit(1);
     }
 
-    var vault = Vault.init(allocator, args[1]);
-    defer vault.lock();
+    var mgr = VaultManager.init(allocator, args[1]);
+    defer mgr.deinit();
 
     const stdin = std.io.getStdIn().reader();
     const stdout = std.io.getStdOut().writer();
@@ -38,13 +80,13 @@ pub fn main() !void {
         };
         if (line == null) break;
 
-        processCommand(allocator, &vault, line.?, stdout) catch {
+        processCommand(allocator, &mgr, line.?, stdout) catch {
             try writeError(stdout, "internal error");
         };
     }
 }
 
-fn processCommand(allocator: std.mem.Allocator, vault: *Vault, line: []const u8, writer: anytype) !void {
+fn processCommand(allocator: std.mem.Allocator, mgr: *VaultManager, line: []const u8, writer: anytype) !void {
     const parsed = std.json.parseFromSlice(Command, allocator, line, .{}) catch {
         try writeError(writer, "invalid JSON");
         return;
@@ -52,30 +94,147 @@ fn processCommand(allocator: std.mem.Allocator, vault: *Vault, line: []const u8,
     defer parsed.deinit();
     const cmd = parsed.value;
 
-    if (std.mem.eql(u8, cmd.cmd, "init")) {
+    // -- Multi-vault commands --
+
+    if (std.mem.eql(u8, cmd.cmd, "init_all")) {
+        const master_pw = cmd.password orelse {
+            try writeError(writer, "password required");
+            return;
+        };
+        const admin_pw = cmd.value orelse {
+            try writeError(writer, "admin password required (value field)");
+            return;
+        };
+
+        mgr.ensureDir() catch {
+            try writeError(writer, "cannot create vault directory");
+            return;
+        };
+
+        // Init all 3 vaults with master password
+        for (&mgr.vaults) |*v| {
+            v.initVault(master_pw) catch |err| {
+                try writeVaultError(writer, err);
+                return;
+            };
+        }
+
+        // Store admin password in creator vault
+        mgr.vaults[0].store("admin_password", admin_pw) catch |err| {
+            try writeVaultError(writer, err);
+            return;
+        };
+
+        // Lock all after init
+        for (&mgr.vaults) |*v| {
+            v.lock();
+        }
+
+        try writeOkMsg(writer, "All 3 vaults initialized");
+        return;
+    }
+
+    if (std.mem.eql(u8, cmd.cmd, "unlock_all")) {
         const password = cmd.password orelse {
             try writeError(writer, "password required");
             return;
         };
+
+        for (&mgr.vaults) |*v| {
+            if (v.locked) {
+                v.unlock(password) catch |err| {
+                    try writeVaultError(writer, err);
+                    return;
+                };
+            }
+        }
+
+        try writeOkMsg(writer, "All vaults unlocked");
+        return;
+    }
+
+    if (std.mem.eql(u8, cmd.cmd, "status")) {
+        try writer.writeAll("{\"status\":\"ok\",\"vaults\":{");
+        for (vault_names, 0..) |name, i| {
+            if (i > 0) try writer.writeAll(",");
+            const v = &mgr.vaults[i];
+            const exists = v.fileExists();
+            const locked = v.locked;
+            try writer.print("\"{s}\":{{\"exists\":{s},\"locked\":{s}}}", .{
+                name,
+                if (exists) "true" else "false",
+                if (locked) "true" else "false",
+            });
+        }
+        try writer.writeAll("}}\n");
+        return;
+    }
+
+    // -- Per-vault commands: require "vault" field --
+
+    if (std.mem.eql(u8, cmd.cmd, "init")) {
+        const vault_name = cmd.vault orelse {
+            try writeError(writer, "vault name required");
+            return;
+        };
+        const password = cmd.password orelse {
+            try writeError(writer, "password required");
+            return;
+        };
+
+        const vault = mgr.getVault(vault_name) orelse {
+            try writeError(writer, "unknown vault name");
+            return;
+        };
+
+        mgr.ensureDir() catch {
+            try writeError(writer, "cannot create vault directory");
+            return;
+        };
+
         vault.initVault(password) catch |err| {
             try writeVaultError(writer, err);
             return;
         };
         try writeOkMsg(writer, "Vault initialized");
     } else if (std.mem.eql(u8, cmd.cmd, "unlock")) {
+        const vault_name = cmd.vault orelse {
+            try writeError(writer, "vault name required");
+            return;
+        };
         const password = cmd.password orelse {
             try writeError(writer, "password required");
             return;
         };
+
+        const vault = mgr.getVault(vault_name) orelse {
+            try writeError(writer, "unknown vault name");
+            return;
+        };
+
         vault.unlock(password) catch |err| {
             try writeVaultError(writer, err);
             return;
         };
         try writeOkMsg(writer, "Vault unlocked");
     } else if (std.mem.eql(u8, cmd.cmd, "lock")) {
+        const vault_name = cmd.vault orelse {
+            try writeError(writer, "vault name required");
+            return;
+        };
+
+        const vault = mgr.getVault(vault_name) orelse {
+            try writeError(writer, "unknown vault name");
+            return;
+        };
+
         vault.lock();
         try writeOkMsg(writer, "Vault locked");
     } else if (std.mem.eql(u8, cmd.cmd, "store")) {
+        const vault_name = cmd.vault orelse {
+            try writeError(writer, "vault name required");
+            return;
+        };
         const key = cmd.key orelse {
             try writeError(writer, "key required");
             return;
@@ -84,16 +243,32 @@ fn processCommand(allocator: std.mem.Allocator, vault: *Vault, line: []const u8,
             try writeError(writer, "value required");
             return;
         };
+
+        const vault = mgr.getVault(vault_name) orelse {
+            try writeError(writer, "unknown vault name");
+            return;
+        };
+
         vault.store(key, value) catch |err| {
             try writeVaultError(writer, err);
             return;
         };
         try writeOkMsg(writer, "Secret stored");
     } else if (std.mem.eql(u8, cmd.cmd, "get")) {
+        const vault_name = cmd.vault orelse {
+            try writeError(writer, "vault name required");
+            return;
+        };
         const key = cmd.key orelse {
             try writeError(writer, "key required");
             return;
         };
+
+        const vault = mgr.getVault(vault_name) orelse {
+            try writeError(writer, "unknown vault name");
+            return;
+        };
+
         const value = vault.get(key) catch |err| {
             try writeVaultError(writer, err);
             return;
@@ -105,6 +280,16 @@ fn processCommand(allocator: std.mem.Allocator, vault: *Vault, line: []const u8,
             try writeError(writer, "Key not found");
         }
     } else if (std.mem.eql(u8, cmd.cmd, "list")) {
+        const vault_name = cmd.vault orelse {
+            try writeError(writer, "vault name required");
+            return;
+        };
+
+        const vault = mgr.getVault(vault_name) orelse {
+            try writeError(writer, "unknown vault name");
+            return;
+        };
+
         const keys = vault.listKeys() catch |err| {
             try writeVaultError(writer, err);
             return;
@@ -115,10 +300,20 @@ fn processCommand(allocator: std.mem.Allocator, vault: *Vault, line: []const u8,
         }
         try writeOkKeys(writer, keys);
     } else if (std.mem.eql(u8, cmd.cmd, "delete")) {
+        const vault_name = cmd.vault orelse {
+            try writeError(writer, "vault name required");
+            return;
+        };
         const key = cmd.key orelse {
             try writeError(writer, "key required");
             return;
         };
+
+        const vault = mgr.getVault(vault_name) orelse {
+            try writeError(writer, "unknown vault name");
+            return;
+        };
+
         const found = vault.delete(key) catch |err| {
             try writeVaultError(writer, err);
             return;
@@ -129,16 +324,36 @@ fn processCommand(allocator: std.mem.Allocator, vault: *Vault, line: []const u8,
             try writeError(writer, "Key not found");
         }
     } else if (std.mem.eql(u8, cmd.cmd, "note_add")) {
+        const vault_name = cmd.vault orelse {
+            try writeError(writer, "vault name required");
+            return;
+        };
         const text = cmd.text orelse {
             try writeError(writer, "text required");
             return;
         };
+
+        const vault = mgr.getVault(vault_name) orelse {
+            try writeError(writer, "unknown vault name");
+            return;
+        };
+
         const id = vault.addNote(text) catch |err| {
             try writeVaultError(writer, err);
             return;
         };
         try writeOkId(writer, id);
     } else if (std.mem.eql(u8, cmd.cmd, "notes")) {
+        const vault_name = cmd.vault orelse {
+            try writeError(writer, "vault name required");
+            return;
+        };
+
+        const vault = mgr.getVault(vault_name) orelse {
+            try writeError(writer, "unknown vault name");
+            return;
+        };
+
         const notes = vault.listNotes() catch |err| {
             try writeVaultError(writer, err);
             return;

@@ -36,7 +36,7 @@ pub const Vault = struct {
         };
     }
 
-    fn fileExists(self: *const Vault) bool {
+    pub fn fileExists(self: *const Vault) bool {
         const file = std.fs.openFileAbsolute(self.vault_path, .{}) catch return false;
         file.close();
         return true;

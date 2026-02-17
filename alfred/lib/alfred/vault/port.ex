@@ -1,28 +1,76 @@
 defmodule Alfred.Vault.Port do
   @moduledoc """
   Communication avec le binaire Zig alfred-vault via Erlang Port.
-  Le binaire lit des commandes JSON sur stdin et écrit des réponses JSON sur stdout.
+  Le binaire prend un répertoire de vaults et gère 3 coffres (creator, users, culture).
   Chaque session ouvre un process, envoie une séquence de commandes, puis ferme.
   """
 
-  def vault_path do
+  @vault_names ~w(creator users culture)
+
+  def vault_dir do
+    Path.join(System.user_home!(), ".alfred/vaults")
+  end
+
+  def legacy_vault_path do
     Path.join(System.user_home!(), ".alfred/vault.enc")
   end
 
+  def vault_names, do: @vault_names
+
+  # -- Multi-vault commands --
+
   @doc """
-  Send a single command (no unlock needed — for init).
+  Initialize all 3 vaults with master and admin passwords.
+  """
+  def init_all(master_password, admin_password) do
+    send_command(%{cmd: "init_all", password: master_password, value: admin_password})
+  end
+
+  @doc """
+  Get status of all 3 vaults.
+  """
+  def vault_status do
+    send_command(%{cmd: "status"})
+  end
+
+  # -- Per-vault commands --
+
+  @doc """
+  Send a single command (no unlock needed — for init, status).
   """
   def send_command(command) when is_map(command) do
     send_commands([command])
   end
 
   @doc """
-  Send a command with prior unlock — for operations that need the vault open.
-  Sends unlock first, checks it succeeds, then sends the actual command.
-  Returns the result of the second command.
+  Send a command targeting a specific vault with prior unlock.
   """
-  def send_with_unlock(password, command) when is_binary(password) and is_map(command) do
-    send_commands([%{cmd: "unlock", password: password}, command])
+  def send_with_unlock(vault_name, password, command)
+      when is_binary(vault_name) and is_binary(password) and is_map(command) do
+    send_commands([
+      %{cmd: "unlock", vault: vault_name, password: password},
+      Map.put(command, :vault, vault_name)
+    ])
+  end
+
+  @doc """
+  Unlock all vaults with master password, then send a command to a specific vault.
+  """
+  def send_with_master_unlock(master_password, vault_name, command)
+      when is_binary(master_password) and is_binary(vault_name) and is_map(command) do
+    send_commands([
+      %{cmd: "unlock_all", password: master_password},
+      Map.put(command, :vault, vault_name)
+    ])
+  end
+
+  @doc """
+  Unlock all vaults then send multiple commands.
+  Returns the result of the LAST command.
+  """
+  def send_with_master_unlock_multi(master_password, commands)
+      when is_binary(master_password) and is_list(commands) do
+    send_commands([%{cmd: "unlock_all", password: master_password} | commands])
   end
 
   @doc """
@@ -40,7 +88,7 @@ defmodule Alfred.Vault.Port do
         Port.open({:spawn_executable, binary}, [
           :binary,
           :exit_status,
-          args: [vault_path()],
+          args: [vault_dir()],
           line: 65536
         ])
 

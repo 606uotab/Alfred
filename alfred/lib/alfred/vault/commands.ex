@@ -1,36 +1,80 @@
 defmodule Alfred.Vault.Commands do
   @moduledoc """
-  Commandes vault pour le CLI d'Alfred — gestion du coffre-fort chiffré.
+  Commandes vault pour le CLI d'Alfred — gestion des 3 coffres-forts chiffrés.
   """
 
   alias Alfred.Vault.Port
   alias Alfred.Butler
 
-  def handle(["init"]) do
-    password = prompt_password("Choisissez un mot de passe maître : ")
-    confirm = prompt_password("Confirmez le mot de passe : ")
+  @valid_vaults ~w(creator users culture)
 
-    if password != confirm do
-      Butler.say("Les mots de passe ne correspondent pas, Monsieur.")
+  # -- Setup: create all 3 vaults --
+
+  def handle(["setup"]) do
+    Butler.say("Création des 3 coffres-forts, Monsieur.\n")
+
+    master_pw = prompt_password("Mot de passe maître (déverrouille tout) : ")
+    master_confirm = prompt_password("Confirmez le mot de passe maître : ")
+
+    if master_pw != master_confirm do
+      Butler.say("Les mots de passe maître ne correspondent pas, Monsieur.")
     else
-      if String.length(password) < 4 do
+      if String.length(master_pw) < 4 do
         Butler.say("Monsieur, je recommande un mot de passe d'au moins 4 caractères.")
       else
-        case Port.send_command(%{cmd: "init", password: password}) do
-          {:ok, _} ->
-            Butler.say("Très bien Monsieur. Votre coffre-fort est créé et sécurisé. Gardez précieusement votre mot de passe.")
+        admin_pw = prompt_password("Mot de passe admin (users + culture) : ")
+        admin_confirm = prompt_password("Confirmez le mot de passe admin : ")
 
-          {:error, "Vault already exists"} ->
-            Butler.say("Monsieur, un coffre-fort existe déjà.")
+        if admin_pw != admin_confirm do
+          Butler.say("Les mots de passe admin ne correspondent pas, Monsieur.")
+        else
+          if String.length(admin_pw) < 4 do
+            Butler.say("Monsieur, le mot de passe admin doit faire au moins 4 caractères.")
+          else
+            case Port.init_all(master_pw, admin_pw) do
+              {:ok, _} ->
+                Butler.say("Très bien Monsieur. Les 3 coffres-forts sont créés et sécurisés :")
+                IO.puts("  🔒 creator.enc  — Âme, secrets du créateur (Maître seul)")
+                IO.puts("  🔒 users.enc    — Profils utilisateurs (Admin + Maître)")
+                IO.puts("  🔒 culture.enc  — Connaissances avec sources (Admin + Maître)\n")
+                Butler.say("Gardez précieusement vos mots de passe.")
 
-          {:error, msg} ->
-            Butler.say("Je suis navré Monsieur, une erreur est survenue : #{msg}")
+              {:error, "Vault already exists"} ->
+                Butler.say("Monsieur, les coffres-forts existent déjà. Utilisez 'alfred vault status' pour vérifier.")
+
+              {:error, msg} ->
+                Butler.say("Je suis navré Monsieur, une erreur est survenue : #{msg}")
+            end
+          end
         end
       end
     end
   end
 
-  def handle(["store", key | rest]) do
+  # -- Status --
+
+  def handle(["status"]) do
+    case Port.vault_status() do
+      {:ok, %{"vaults" => vaults}} ->
+        Butler.say("État des coffres-forts, Monsieur :\n")
+
+        Enum.each(["creator", "users", "culture"], fn name ->
+          info = vaults[name]
+          icon = if info["exists"], do: "🔒", else: "○"
+          status = if info["exists"], do: "présent", else: "absent"
+          IO.puts("  #{icon} #{name}.enc — #{status}")
+        end)
+
+        IO.puts("")
+
+      {:error, msg} ->
+        Butler.say("Erreur : #{msg}")
+    end
+  end
+
+  # -- Store --
+
+  def handle(["store", vault_name, key | rest]) when vault_name in @valid_vaults do
     value =
       if rest == [] do
         prompt_secret("Valeur pour '#{key}' : ")
@@ -38,11 +82,11 @@ defmodule Alfred.Vault.Commands do
         Enum.join(rest, " ")
       end
 
-    password = prompt_password("Mot de passe maître : ")
+    password = prompt_password("Mot de passe : ")
 
-    case Port.send_with_unlock(password, %{cmd: "store", key: key, value: value}) do
+    case Port.send_with_unlock(vault_name, password, %{cmd: "store", key: key, value: value}) do
       {:ok, _} ->
-        Butler.say("Secret '#{key}' enregistré dans le coffre-fort, Monsieur.")
+        Butler.say("Secret '#{key}' enregistré dans #{vault_name}, Monsieur.")
 
       {:error, "Wrong password"} ->
         Butler.say("Mot de passe incorrect, Monsieur.")
@@ -52,34 +96,38 @@ defmodule Alfred.Vault.Commands do
     end
   end
 
-  def handle(["get", key]) do
-    password = prompt_password("Mot de passe maître : ")
+  # -- Get --
 
-    case Port.send_with_unlock(password, %{cmd: "get", key: key}) do
+  def handle(["get", vault_name, key]) when vault_name in @valid_vaults do
+    password = prompt_password("Mot de passe : ")
+
+    case Port.send_with_unlock(vault_name, password, %{cmd: "get", key: key}) do
       {:ok, %{"value" => value}} ->
-        Butler.say("Monsieur, voici la valeur de '#{key}' :")
+        Butler.say("Monsieur, voici la valeur de '#{key}' (#{vault_name}) :")
         IO.puts("\n  #{value}\n")
 
       {:error, "Wrong password"} ->
         Butler.say("Mot de passe incorrect, Monsieur.")
 
       {:error, "Key not found"} ->
-        Butler.say("Monsieur, la clé '#{key}' n'existe pas dans le coffre-fort.")
+        Butler.say("Monsieur, la clé '#{key}' n'existe pas dans #{vault_name}.")
 
       {:error, msg} ->
         Butler.say("Erreur : #{msg}")
     end
   end
 
-  def handle(["list"]) do
-    password = prompt_password("Mot de passe maître : ")
+  # -- List --
 
-    case Port.send_with_unlock(password, %{cmd: "list"}) do
+  def handle(["list", vault_name]) when vault_name in @valid_vaults do
+    password = prompt_password("Mot de passe : ")
+
+    case Port.send_with_unlock(vault_name, password, %{cmd: "list"}) do
       {:ok, %{"keys" => keys}} ->
         if keys == [] do
-          Butler.say("Le coffre-fort est vide, Monsieur.")
+          Butler.say("Le coffre #{vault_name} est vide, Monsieur.")
         else
-          Butler.say("Monsieur, voici les clés de votre coffre-fort :\n")
+          Butler.say("Clés dans #{vault_name} :\n")
 
           Enum.each(keys, fn key ->
             IO.puts("  🔑 #{key}")
@@ -96,31 +144,35 @@ defmodule Alfred.Vault.Commands do
     end
   end
 
-  def handle(["delete", key]) do
-    password = prompt_password("Mot de passe maître : ")
+  # -- Delete --
 
-    case Port.send_with_unlock(password, %{cmd: "delete", key: key}) do
+  def handle(["delete", vault_name, key]) when vault_name in @valid_vaults do
+    password = prompt_password("Mot de passe : ")
+
+    case Port.send_with_unlock(vault_name, password, %{cmd: "delete", key: key}) do
       {:ok, _} ->
-        Butler.say("Secret '#{key}' supprimé du coffre-fort, Monsieur.")
+        Butler.say("Secret '#{key}' supprimé de #{vault_name}, Monsieur.")
 
       {:error, "Wrong password"} ->
         Butler.say("Mot de passe incorrect, Monsieur.")
 
       {:error, "Key not found"} ->
-        Butler.say("Monsieur, la clé '#{key}' n'existe pas dans le coffre-fort.")
+        Butler.say("Monsieur, la clé '#{key}' n'existe pas dans #{vault_name}.")
 
       {:error, msg} ->
         Butler.say("Erreur : #{msg}")
     end
   end
 
-  def handle(["note" | rest]) when rest != [] do
-    text = Enum.join(rest, " ")
-    password = prompt_password("Mot de passe maître : ")
+  # -- Notes (per-vault) --
 
-    case Port.send_with_unlock(password, %{cmd: "note_add", text: text}) do
+  def handle(["note", vault_name | rest]) when vault_name in @valid_vaults and rest != [] do
+    text = Enum.join(rest, " ")
+    password = prompt_password("Mot de passe : ")
+
+    case Port.send_with_unlock(vault_name, password, %{cmd: "note_add", text: text}) do
       {:ok, %{"id" => id}} ->
-        Butler.say("Note confidentielle ##{id} enregistrée dans le coffre-fort, Monsieur.")
+        Butler.say("Note confidentielle ##{id} enregistrée dans #{vault_name}, Monsieur.")
 
       {:error, "Wrong password"} ->
         Butler.say("Mot de passe incorrect, Monsieur.")
@@ -130,15 +182,15 @@ defmodule Alfred.Vault.Commands do
     end
   end
 
-  def handle(["notes"]) do
-    password = prompt_password("Mot de passe maître : ")
+  def handle(["notes", vault_name]) when vault_name in @valid_vaults do
+    password = prompt_password("Mot de passe : ")
 
-    case Port.send_with_unlock(password, %{cmd: "notes"}) do
+    case Port.send_with_unlock(vault_name, password, %{cmd: "notes"}) do
       {:ok, %{"notes" => notes}} ->
         if notes == [] do
-          Butler.say("Aucune note confidentielle dans le coffre-fort, Monsieur.")
+          Butler.say("Aucune note dans #{vault_name}, Monsieur.")
         else
-          Butler.say("Monsieur, voici vos notes confidentielles :\n")
+          Butler.say("Notes dans #{vault_name} :\n")
 
           Enum.each(notes, fn note ->
             date = format_timestamp(note["created_at"])
@@ -156,36 +208,73 @@ defmodule Alfred.Vault.Commands do
     end
   end
 
-  def handle(["destroy"]) do
-    vault = Alfred.Vault.Port.vault_path()
+  # -- Destroy --
 
-    unless File.exists?(vault) do
+  def handle(["destroy"]) do
+    vault_dir = Port.vault_dir()
+
+    unless File.dir?(vault_dir) do
       Butler.say("Monsieur, il n'y a aucun coffre-fort à détruire.")
     else
-      confirm = IO.gets("Détruire le coffre-fort et TOUS ses secrets ? (oui/non) : ") |> String.trim()
+      confirm =
+        IO.gets("Détruire TOUS les coffres-forts et leurs secrets ? (oui/non) : ")
+        |> String.trim()
 
       if confirm == "oui" do
-        File.rm!(vault)
-        Butler.say("Le coffre-fort a été détruit, Monsieur. Tous les secrets sont perdus.")
+        File.rm_rf!(vault_dir)
+        Butler.say("Les coffres-forts ont été détruits, Monsieur. Tous les secrets sont perdus.")
       else
         Butler.say("Destruction annulée, Monsieur.")
       end
     end
   end
 
+  # -- Migrate --
+
+  def handle(["migrate"]) do
+    Alfred.Vault.Migration.run()
+  end
+
+  # -- Legacy fallback: old-style commands without vault name --
+
+  def handle(["init"]) do
+    Butler.say("Monsieur, le format a changé. Utilisez : alfred vault setup")
+  end
+
+  def handle(["store", key | rest]) do
+    Butler.say("Monsieur, précisez le coffre : alfred vault store <creator|users|culture> #{key} #{Enum.join(rest, " ")}")
+  end
+
+  def handle(["get", key]) do
+    Butler.say("Monsieur, précisez le coffre : alfred vault get <creator|users|culture> #{key}")
+  end
+
+  def handle(["list"]) do
+    Butler.say("Monsieur, précisez le coffre : alfred vault list <creator|users|culture>")
+  end
+
+  def handle(["delete", key]) do
+    Butler.say("Monsieur, précisez le coffre : alfred vault delete <creator|users|culture> #{key}")
+  end
+
+  # -- Help --
+
   def handle(_) do
     Butler.say("Monsieur, les commandes du coffre-fort sont :\n")
 
     IO.puts("""
-      alfred vault init               Créer le coffre-fort
-      alfred vault store mistral_api_key  Stocker la clé Mistral
-      alfred vault store <nom> [val]   Stocker un secret
-      alfred vault get <nom>           Récupérer un secret
-      alfred vault list                Lister les clés
-      alfred vault delete <clé>        Supprimer un secret
-      alfred vault note <texte>        Ajouter une note chiffrée
-      alfred vault notes               Lister les notes chiffrées
-      alfred vault destroy             Détruire le coffre-fort
+      alfred vault setup                        Créer les 3 coffres-forts
+      alfred vault status                       État des coffres-forts
+      alfred vault store <coffre> <clé> [val]   Stocker un secret
+      alfred vault get <coffre> <clé>           Récupérer un secret
+      alfred vault list <coffre>                Lister les clés
+      alfred vault delete <coffre> <clé>        Supprimer un secret
+      alfred vault note <coffre> <texte>        Ajouter une note chiffrée
+      alfred vault notes <coffre>               Lister les notes chiffrées
+      alfred vault destroy                      Détruire tous les coffres
+      alfred vault migrate                      Migrer depuis l'ancien format
+
+      Coffres : creator, users, culture
     """)
   end
 

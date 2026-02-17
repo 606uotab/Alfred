@@ -12,6 +12,11 @@ defmodule Alfred.CLI do
     Alfred.Storage.Local.ensure_data_dir!()
     {:ok, _} = Alfred.Application.start()
 
+    # Check for migration at startup
+    if args == [] do
+      Alfred.Vault.Migration.check_and_suggest()
+    end
+
     case args do
       [] ->
         Butler.greet()
@@ -59,6 +64,23 @@ defmodule Alfred.CLI do
       ["vault" | vault_args] ->
         Alfred.Vault.Commands.handle(vault_args)
 
+      ["culture" | culture_args] ->
+        Alfred.Culture.Commands.handle(culture_args)
+
+      ["user", "add" | rest] when rest != [] ->
+        name = Enum.join(rest, " ")
+        user_add(name)
+
+      ["user", "list"] ->
+        user_list()
+
+      ["user", "delete" | rest] when rest != [] ->
+        name = Enum.join(rest, " ")
+        user_delete(name)
+
+      ["user"] ->
+        user_help()
+
       ["remind", "list"] ->
         Alfred.Remind.Commands.handle(["list"])
 
@@ -97,6 +119,9 @@ defmodule Alfred.CLI do
 
       ["cortex" | cortex_args] ->
         Alfred.Cortex.Commands.handle(cortex_args)
+
+      ["soul" | soul_args] ->
+        Alfred.Soul.Commands.handle(soul_args)
 
       ["health"] ->
         health()
@@ -281,6 +306,121 @@ defmodule Alfred.CLI do
     end
   end
 
+  # -- User management --
+
+  defp user_add(name) do
+    password = Alfred.Input.prompt_password("Mot de passe (admin ou maître) : ")
+
+    users = load_users(password)
+
+    case users do
+      {:error, reason} ->
+        Butler.say(reason)
+
+      {:ok, list} ->
+        if Enum.any?(list, &(&1["name"] == name)) do
+          Butler.say("Monsieur, l'utilisateur '#{name}' existe déjà.")
+        else
+          now = DateTime.utc_now() |> DateTime.to_iso8601()
+          updated = [%{"name" => name, "created_at" => now} | list]
+
+          case Alfred.Vault.Port.send_with_unlock("users", password, %{
+                 cmd: "store",
+                 key: "user_list",
+                 value: Jason.encode!(updated)
+               }) do
+            {:ok, _} ->
+              Butler.say("Utilisateur '#{name}' ajouté, Monsieur.")
+
+            {:error, msg} ->
+              Butler.say("Erreur : #{msg}")
+          end
+        end
+    end
+  end
+
+  defp user_list do
+    password = Alfred.Input.prompt_password("Mot de passe (admin ou maître) : ")
+
+    case load_users(password) do
+      {:error, reason} ->
+        Butler.say(reason)
+
+      {:ok, []} ->
+        Butler.say("Aucun utilisateur enregistré, Monsieur.")
+
+      {:ok, users} ->
+        Butler.say("Utilisateurs enregistrés :\n")
+
+        Enum.each(users, fn user ->
+          date = String.slice(user["created_at"] || "", 0, 10)
+          IO.puts("  👤 #{user["name"]}  (depuis #{date})")
+        end)
+
+        IO.puts("")
+    end
+  end
+
+  defp user_delete(name) do
+    password = Alfred.Input.prompt_password("Mot de passe (admin ou maître) : ")
+
+    case load_users(password) do
+      {:error, reason} ->
+        Butler.say(reason)
+
+      {:ok, list} ->
+        if Enum.any?(list, &(&1["name"] == name)) do
+          updated = Enum.reject(list, &(&1["name"] == name))
+
+          case Alfred.Vault.Port.send_with_unlock("users", password, %{
+                 cmd: "store",
+                 key: "user_list",
+                 value: Jason.encode!(updated)
+               }) do
+            {:ok, _} ->
+              Butler.say("Utilisateur '#{name}' supprimé, Monsieur.")
+
+            {:error, msg} ->
+              Butler.say("Erreur : #{msg}")
+          end
+        else
+          Butler.say("Monsieur, l'utilisateur '#{name}' n'existe pas.")
+        end
+    end
+  end
+
+  defp user_help do
+    Butler.say("Monsieur, les commandes utilisateurs sont :\n")
+
+    IO.puts("""
+      alfred user add <nom>      Ajouter un utilisateur
+      alfred user list            Lister les utilisateurs
+      alfred user delete <nom>    Supprimer un utilisateur
+    """)
+  end
+
+  defp load_users(password) do
+    case Alfred.Vault.Port.send_with_unlock("users", password, %{
+           cmd: "get",
+           key: "user_list"
+         }) do
+      {:ok, %{"value" => json}} ->
+        case Jason.decode(json) do
+          {:ok, list} when is_list(list) -> {:ok, list}
+          _ -> {:ok, []}
+        end
+
+      {:error, "Key not found"} ->
+        {:ok, []}
+
+      {:error, "Wrong password"} ->
+        {:error, "Mot de passe incorrect, Monsieur."}
+
+      {:error, msg} ->
+        {:error, "Erreur : #{msg}"}
+    end
+  end
+
   # -- Status --
 
   defp status do
@@ -354,8 +494,8 @@ defmodule Alfred.CLI do
 
   defp organ_details(:vault, info) do
     case {info.binary_found, info.vault_exists} do
-      {true, true} -> "Binaire OK, coffre-fort présent"
-      {true, false} -> "Binaire OK, pas de coffre-fort"
+      {true, true} -> "Binaire OK, #{info.vault_count}/3 coffres présents"
+      {true, false} -> "Binaire OK, #{info.vault_count}/3 coffres"
       {false, _} -> "Binaire introuvable"
     end
   end
@@ -415,32 +555,44 @@ defmodule Alfred.CLI do
       alfred note list [projet]                  Lister les notes
       alfred status                              Vue d'ensemble
 
-      alfred vault init                          Créer le coffre-fort
-      alfred vault store mistral_api_key         Stocker la clé Mistral
-      alfred vault store <nom> [valeur]          Stocker un secret
-      alfred vault get <nom>                     Récupérer un secret
-      alfred vault list                          Lister les clés secrètes
-      alfred vault delete <clé>                  Supprimer un secret
-      alfred vault note <texte>                  Note confidentielle chiffrée
-      alfred vault notes                         Lister les notes chiffrées
-      alfred vault destroy                       Détruire le coffre-fort
+      alfred vault setup                         Créer les 3 coffres-forts
+      alfred vault status                        État des coffres-forts
+      alfred vault store <coffre> <clé> [val]    Stocker un secret
+      alfred vault get <coffre> <clé>            Récupérer un secret
+      alfred vault list <coffre>                 Lister les clés secrètes
+      alfred vault delete <coffre> <clé>         Supprimer un secret
+      alfred vault note <coffre> <texte>         Note confidentielle chiffrée
+      alfred vault notes <coffre>                Lister les notes chiffrées
+      alfred vault destroy                       Détruire tous les coffres
+      alfred vault migrate                       Migrer depuis l'ancien format
+
+      alfred user add <nom>                      Ajouter un utilisateur
+      alfred user list                           Lister les utilisateurs
+      alfred user delete <nom>                   Supprimer un utilisateur
+
+      alfred culture learn <sujet> <contenu>     Enseigner une connaissance
+      alfred culture search <mots>               Rechercher dans la culture
+      alfred culture list                        Lister les connaissances
 
       alfred chat                                Conversation interactive
-      alfred ask <question>                       Question ponctuelle
-      alfred memory facts                         Faits mémorisés
-      alfred memory search <mots>                 Rechercher dans la mémoire
-      alfred memory episodes                      Historique des conversations
-      alfred memory forget <id>                   Oublier un fait
+      alfred ask <question>                      Question ponctuelle
+      alfred memory facts                        Faits mémorisés
+      alfred memory search <mots>                Rechercher dans la mémoire
+      alfred memory episodes                     Historique des conversations
+      alfred memory forget <id>                  Oublier un fait
 
       alfred think about <projet>                Analyse intelligente
-      alfred summarize <projet>                   Résumé du projet
-      alfred suggest                              Suggestions transversales
+      alfred summarize <projet>                  Résumé du projet
+      alfred suggest                             Suggestions transversales
 
       alfred remind <projet> <texte> in <durée>  Programmer un rappel
       alfred remind list                         Lister les rappels
       alfred remind done <id>                    Accomplir un rappel
       alfred remind delete <id>                  Supprimer un rappel
       alfred health                              Diagnostic des organes
+
+      alfred soul init                           Inscrire l'âme (coffre creator)
+      alfred soul check                          Vérifier l'âme
 
       alfred help                                Cette aide
     """)
