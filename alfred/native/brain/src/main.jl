@@ -915,6 +915,133 @@ function cmd_analyze_culture(input)
 end
 
 # ============================================================
+# Prioritize — Priorisation intelligente des tâches
+# ============================================================
+
+function cmd_prioritize(input)
+    project = get(input, "project", Dict{String,Any}())
+    now_ts = get(input, "now", round(Int, time()))
+    name = get(project, "name", "?")
+    tasks = get(project, "tasks", [])
+
+    pending = filter(t -> get(t, "status", "") == "pending", tasks)
+
+    if isempty(pending)
+        respond(Dict{String,Any}(
+            "ranked" => Any[],
+            "insights" => ["Aucune tâche en attente sur \"$name\"."],
+            "actions" => String[]
+        ))
+        return
+    end
+
+    # Score each task
+    scored = []
+    for t in pending
+        desc = get(t, "description", "")
+        priority = get(t, "priority", 1)
+        created = get(t, "created_at", "")
+
+        # Base score from priority (P5=50, P4=40, P3=30, P2=20, P1=10)
+        score = priority * 10.0
+
+        # Age bonus: older tasks get a boost (1 point per day, max 30)
+        age_days = 0.0
+        if created != ""
+            try
+                dt = DateTime(created[1:min(19, length(created))])
+                age_days = (now_ts - round(Int, datetime2unix(dt))) / 86400
+                score += min(30.0, age_days)
+            catch
+            end
+        end
+
+        # Keyword urgency detection
+        ld = lowercase(desc)
+        urgent_words = ["urgent", "critique", "asap", "immédiat", "bloqu", "bug", "fix", "erreur", "panne"]
+        for w in urgent_words
+            if occursin(w, ld)
+                score += 15.0
+                break
+            end
+        end
+
+        # Short description bonus (likely quick wins)
+        if length(desc) < 30
+            score += 3.0
+        end
+
+        push!(scored, (task=t, score=score, age_days=age_days))
+    end
+
+    # Sort by score descending
+    sort!(scored, by=x -> -x.score)
+
+    # Build ranked list
+    ranked = Dict{String,Any}[]
+    insights = String[]
+    actions = String[]
+
+    for (i, item) in enumerate(scored)
+        t = item.task
+        entry = Dict{String,Any}(
+            "rank" => i,
+            "description" => get(t, "description", ""),
+            "priority" => get(t, "priority", 1),
+            "score" => round(item.score, digits=1),
+            "age_days" => round(item.age_days, digits=0)
+        )
+        push!(ranked, entry)
+    end
+
+    # Generate insights
+    top = scored[1]
+    push!(insights, "Tâche recommandée en premier : \"$(get(top.task, "description", ""))\" (score $(round(top.score, digits=1))).")
+
+    # Check if priorities don't match recommended order
+    reorder_needed = false
+    for (i, item) in enumerate(scored)
+        if i <= 3 && get(item.task, "priority", 1) < 3
+            reorder_needed = true
+            break
+        end
+    end
+    if reorder_needed
+        push!(insights, "Certaines tâches urgentes ont une priorité basse — envisagez de les remonter.")
+    end
+
+    # Check for very old tasks
+    old_tasks = filter(x -> x.age_days > 14, scored)
+    if !isempty(old_tasks)
+        push!(insights, "$(length(old_tasks)) tâche(s) en attente depuis plus de 2 semaines.")
+    end
+
+    # Quick wins
+    quick_wins = filter(x -> length(get(x.task, "description", "")) < 30 && get(x.task, "priority", 1) <= 2, scored)
+    if !isempty(quick_wins)
+        push!(insights, "$(length(quick_wins)) tâche(s) rapide(s) à traiter pour libérer l'esprit.")
+    end
+
+    # Suggested actions
+    if length(scored) > 5
+        push!(actions, "Concentrez-vous sur les 3 premières tâches aujourd'hui.")
+    end
+    if !isempty(old_tasks)
+        oldest_desc = get(old_tasks[1].task, "description", "")
+        push!(actions, "Traitez ou reportez \"$oldest_desc\" — elle attend depuis $(round(Int, old_tasks[1].age_days)) jours.")
+    end
+    if isempty(actions)
+        push!(actions, "Suivez l'ordre recommandé, Monsieur.")
+    end
+
+    respond(Dict{String,Any}(
+        "ranked" => ranked,
+        "insights" => insights,
+        "actions" => actions
+    ))
+end
+
+# ============================================================
 # Universal Search — Recherche transversale
 # ============================================================
 
@@ -1123,6 +1250,8 @@ function main()
                 cmd_analyze_culture(input)
             elseif cmd == "search"
                 cmd_search(input)
+            elseif cmd == "prioritize"
+                cmd_prioritize(input)
             else
                 respond_error("Unknown command: $cmd")
             end

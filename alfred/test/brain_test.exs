@@ -403,6 +403,98 @@ defmodule Alfred.BrainTest do
     end
   end
 
+  describe "Alfred.Brain.Port prioritize" do
+    test "prioritize with no pending tasks" do
+      project = %{"name" => "Vide", "tasks" => [], "notes" => [], "reminders" => []}
+
+      result = Alfred.Brain.Port.send_command(%{cmd: "prioritize", project: project, now: System.system_time(:second)})
+
+      assert {:ok, resp} = result
+      assert resp["ranked"] == []
+      assert Enum.any?(resp["insights"], &(&1 =~ "Aucune"))
+    end
+
+    test "prioritize ranks by score" do
+      project = %{
+        "name" => "Test",
+        "tasks" => [
+          %{"status" => "pending", "priority" => 1, "description" => "Low priority task", "created_at" => "2026-02-17T10:00:00Z"},
+          %{"status" => "pending", "priority" => 5, "description" => "Urgent critical fix", "created_at" => "2026-02-17T10:00:00Z"},
+          %{"status" => "pending", "priority" => 3, "description" => "Medium task", "created_at" => "2026-01-01T10:00:00Z"},
+          %{"status" => "done", "priority" => 5, "description" => "Already done"}
+        ],
+        "notes" => [],
+        "reminders" => []
+      }
+
+      result = Alfred.Brain.Port.send_command(%{cmd: "prioritize", project: project, now: System.system_time(:second)})
+
+      assert {:ok, resp} = result
+      ranked = resp["ranked"]
+      # Should only have 3 pending tasks (done excluded)
+      assert length(ranked) == 3
+      # First should be the urgent one (P5 + urgent keyword bonus)
+      assert Enum.at(ranked, 0)["description"] =~ "Urgent"
+      assert Enum.at(ranked, 0)["rank"] == 1
+      # Scores should be descending
+      scores = Enum.map(ranked, & &1["score"])
+      assert scores == Enum.sort(scores, :desc)
+    end
+
+    test "prioritize detects old tasks" do
+      old_date = "2026-01-01T10:00:00Z"
+
+      project = %{
+        "name" => "Old",
+        "tasks" => [
+          %{"status" => "pending", "priority" => 1, "description" => "Very old task", "created_at" => old_date}
+        ],
+        "notes" => [],
+        "reminders" => []
+      }
+
+      result = Alfred.Brain.Port.send_command(%{cmd: "prioritize", project: project, now: System.system_time(:second)})
+
+      assert {:ok, resp} = result
+      assert Enum.any?(resp["insights"], &(&1 =~ "semaine"))
+    end
+  end
+
+  describe "Alfred.Brain.Commands prioritize CLI" do
+    test "handle_prioritize existing project" do
+      Alfred.Projects.Manager.create("PrioTest")
+      Alfred.Projects.Task.add("PrioTest", "Task A")
+      Alfred.Projects.Task.add("PrioTest", "Task B urgent")
+
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          Alfred.Brain.Commands.handle_prioritize("PrioTest")
+        end)
+
+      assert output =~ "priorité"
+    end
+
+    test "handle_prioritize non-existent project" do
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          Alfred.Brain.Commands.handle_prioritize("Inexistant")
+        end)
+
+      assert output =~ "n'existe pas"
+    end
+
+    test "CLI routing for prioritize" do
+      Alfred.Projects.Manager.create("PrioRoute")
+
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          Alfred.CLI.main(["prioritize", "PrioRoute"])
+        end)
+
+      assert output =~ "priorité" || output =~ "PrioRoute"
+    end
+  end
+
   describe "Alfred.Brain.Port search" do
     test "search with empty query returns error" do
       result = Alfred.Brain.Port.send_command(%{

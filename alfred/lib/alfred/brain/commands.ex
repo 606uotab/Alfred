@@ -266,6 +266,60 @@ defmodule Alfred.Brain.Commands do
   end
 
   @doc """
+  Priorisation intelligente des tâches d'un projet.
+  """
+  def handle_prioritize(project_name) do
+    unless Projects.exists?(project_name) do
+      Butler.say("Je suis navré Monsieur, le projet \"#{project_name}\" n'existe pas.")
+    else
+      project_data = build_project_data(project_name)
+
+      case Brain.send_command(%{cmd: "prioritize", project: project_data, now: now()}) do
+        {:ok, resp} ->
+          ranked = Map.get(resp, "ranked", [])
+          insights = Map.get(resp, "insights", [])
+          actions = Map.get(resp, "actions", [])
+
+          Butler.say("Monsieur, voici l'ordre de priorité recommandé pour \"#{project_name}\" :\n")
+
+          Enum.each(ranked, fn item ->
+            rank = Map.get(item, "rank", 0)
+            desc = Map.get(item, "description", "")
+            prio = Map.get(item, "priority", 1)
+            score = Map.get(item, "score", 0)
+            age = Map.get(item, "age_days", 0)
+
+            age_str = if age > 0, do: " · #{trunc(age)}j", else: ""
+            IO.puts("  #{rank}. #{desc}  [P#{prio}, score #{score}#{age_str}]")
+          end)
+
+          IO.puts("")
+
+          if length(insights) > 0 do
+            Enum.each(insights, fn i ->
+              IO.puts("  💡 #{i}")
+            end)
+
+            IO.puts("")
+          end
+
+          if length(actions) > 0 do
+            IO.puts("  📌 Actions recommandées :")
+
+            Enum.each(actions, fn a ->
+              IO.puts("    #{a}")
+            end)
+
+            IO.puts("")
+          end
+
+        {:error, msg} ->
+          Butler.say("Je suis navré Monsieur, mon cerveau rencontre une difficulté : #{msg}")
+      end
+    end
+  end
+
+  @doc """
   Recherche universelle — cherche dans projets, tâches, notes, mémoire, rappels.
   """
   def handle_search(query) do

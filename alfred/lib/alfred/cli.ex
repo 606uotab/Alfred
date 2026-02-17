@@ -113,6 +113,10 @@ defmodule Alfred.CLI do
         query = Enum.join(rest, " ")
         Alfred.Brain.Commands.handle_search(query)
 
+      ["prioritize" | rest] when rest != [] ->
+        project = Enum.join(rest, " ")
+        Alfred.Brain.Commands.handle_prioritize(project)
+
       ["think", "culture"] ->
         Alfred.Brain.Commands.handle_analyze_culture()
 
@@ -597,6 +601,7 @@ defmodule Alfred.CLI do
       alfred think about <projet>                Analyse intelligente
       alfred summarize <projet>                  Résumé du projet
       alfred suggest                             Suggestions transversales
+      alfred prioritize <projet>                 Priorisation intelligente
 
       alfred remind <projet> <texte> in <durée>  Programmer un rappel
       alfred remind list                         Lister les rappels
