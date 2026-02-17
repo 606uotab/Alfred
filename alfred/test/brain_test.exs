@@ -403,6 +403,114 @@ defmodule Alfred.BrainTest do
     end
   end
 
+  describe "Alfred.Brain.Port search" do
+    test "search with empty query returns error" do
+      result = Alfred.Brain.Port.send_command(%{
+        cmd: "search",
+        query: "",
+        projects: [],
+        tasks: [],
+        notes: [],
+        facts: [],
+        episodes: [],
+        reminders: [],
+        culture: []
+      })
+
+      assert {:error, _} = result
+    end
+
+    test "search finds results across types" do
+      result = Alfred.Brain.Port.send_command(%{
+        cmd: "search",
+        query: "orchidée",
+        projects: [%{"name" => "Jardin"}],
+        tasks: [%{"description" => "Planter des orchidées", "project" => "Jardin", "status" => "pending", "priority" => 3}],
+        notes: [%{"text" => "Les orchidées aiment la lumière indirecte", "project" => "Jardin"}],
+        facts: [%{"content" => "Le maître aime les orchidées", "subject" => "fleurs", "category" => "preferences"}],
+        episodes: [],
+        reminders: [%{"text" => "Arroser les orchidées", "project" => "Jardin", "status" => "pending"}],
+        culture: [%{"topic" => "botanique", "content" => "Orchidée : arrosage hebdomadaire", "source" => %{"type" => "person", "name" => "Annie"}, "tags" => ["plantes"]}]
+      })
+
+      assert {:ok, resp} = result
+      assert resp["total"] >= 4
+      assert is_list(resp["results"])
+      # Should have results from multiple types
+      types = Enum.map(resp["results"], & &1["type"]) |> Enum.uniq()
+      assert length(types) >= 3
+    end
+
+    test "search scores exact phrase higher" do
+      result = Alfred.Brain.Port.send_command(%{
+        cmd: "search",
+        query: "planter roses",
+        projects: [],
+        tasks: [
+          %{"description" => "Planter des roses", "project" => "A", "status" => "pending", "priority" => 1},
+          %{"description" => "Planter des choux", "project" => "B", "status" => "pending", "priority" => 1}
+        ],
+        notes: [],
+        facts: [],
+        episodes: [],
+        reminders: [],
+        culture: []
+      })
+
+      assert {:ok, resp} = result
+      assert resp["total"] >= 1
+      # The first result should be the exact phrase match
+      first = Enum.at(resp["results"], 0)
+      assert first["title"] =~ "roses"
+    end
+
+    test "search returns max 20 results" do
+      tasks = Enum.map(1..30, fn i ->
+        %{"description" => "Test item #{i}", "project" => "P", "status" => "pending", "priority" => 1}
+      end)
+
+      result = Alfred.Brain.Port.send_command(%{
+        cmd: "search",
+        query: "test item",
+        projects: [],
+        tasks: tasks,
+        notes: [],
+        facts: [],
+        episodes: [],
+        reminders: [],
+        culture: []
+      })
+
+      assert {:ok, resp} = result
+      assert resp["total"] == 30
+      assert length(resp["results"]) == 20
+    end
+  end
+
+  describe "Alfred.Brain.Commands search CLI" do
+    test "handle_search with project data" do
+      Alfred.Projects.Manager.create("SearchTest")
+      Alfred.Projects.Task.add("SearchTest", "Important search task")
+
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          Alfred.Brain.Commands.handle_search("search task")
+        end)
+
+      assert output =~ "résultat"
+    end
+
+    test "CLI routing for search" do
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          Alfred.CLI.main(["search", "quelquechose"])
+        end)
+
+      # Should either find results or say no results
+      assert output =~ "résultat" || output =~ "Recherche"
+    end
+  end
+
   describe "alfred_health brain check" do
     test "brain check returns julia status" do
       info = :alfred_health.check_brain()

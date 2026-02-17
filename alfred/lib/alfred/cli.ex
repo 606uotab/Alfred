@@ -109,6 +109,10 @@ defmodule Alfred.CLI do
       ["briefing"] ->
         Alfred.Brain.Commands.handle_briefing()
 
+      ["search" | rest] when rest != [] ->
+        query = Enum.join(rest, " ")
+        Alfred.Brain.Commands.handle_search(query)
+
       ["think", "culture"] ->
         Alfred.Brain.Commands.handle_analyze_culture()
 
@@ -587,6 +591,7 @@ defmodule Alfred.CLI do
       alfred memory episodes                     Historique des conversations
       alfred memory forget <id>                  Oublier un fait
 
+      alfred search <mots>                       Recherche universelle
       alfred briefing                           Synthèse quotidienne
       alfred think culture                       Analyse de la culture
       alfred think about <projet>                Analyse intelligente

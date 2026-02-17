@@ -915,6 +915,184 @@ function cmd_analyze_culture(input)
 end
 
 # ============================================================
+# Universal Search — Recherche transversale
+# ============================================================
+
+function cmd_search(input)
+    query = get(input, "query", "")
+    if isempty(strip(query))
+        respond_error("Requête vide.")
+        return
+    end
+
+    words = split(lowercase(strip(query)))
+
+    results = Dict{String,Any}[]
+
+    # Score a text against query words: count matches + bonus for exact phrase
+    function score_text(text::String)
+        lt = lowercase(text)
+        word_score = count(w -> occursin(w, lt), words)
+        # Bonus for exact phrase match
+        exact_bonus = occursin(lowercase(query), lt) ? 2.0 : 0.0
+        return word_score + exact_bonus
+    end
+
+    # -- Search in projects --
+    projects = get(input, "projects", [])
+    for proj in projects
+        name = get(proj, "name", "")
+        s = score_text(name)
+        if s > 0
+            push!(results, Dict{String,Any}(
+                "type" => "project",
+                "title" => name,
+                "excerpt" => "Projet",
+                "score" => s
+            ))
+        end
+    end
+
+    # -- Search in tasks --
+    tasks = get(input, "tasks", [])
+    for t in tasks
+        desc = get(t, "description", "")
+        project = get(t, "project", "")
+        text = "$desc $project"
+        s = score_text(text)
+        if s > 0
+            status = get(t, "status", "pending")
+            icon = status == "done" ? "✓" : "○"
+            push!(results, Dict{String,Any}(
+                "type" => "task",
+                "title" => desc,
+                "excerpt" => "$icon [$project] P$(get(t, "priority", 1))",
+                "score" => s
+            ))
+        end
+    end
+
+    # -- Search in notes --
+    notes = get(input, "notes", [])
+    for n in notes
+        text = get(n, "text", "")
+        project = get(n, "project", "")
+        combined = "$text $project"
+        s = score_text(combined)
+        if s > 0
+            excerpt = length(text) > 80 ? text[1:77] * "..." : text
+            push!(results, Dict{String,Any}(
+                "type" => "note",
+                "title" => "[$project]",
+                "excerpt" => excerpt,
+                "score" => s
+            ))
+        end
+    end
+
+    # -- Search in memory facts --
+    facts = get(input, "facts", [])
+    for f in facts
+        content = get(f, "content", "")
+        subject = get(f, "subject", "")
+        category = get(f, "category", "")
+        combined = "$content $subject $category"
+        s = score_text(combined)
+        if s > 0
+            excerpt = length(content) > 80 ? content[1:77] * "..." : content
+            push!(results, Dict{String,Any}(
+                "type" => "fact",
+                "title" => "[$category] $subject",
+                "excerpt" => excerpt,
+                "score" => s
+            ))
+        end
+    end
+
+    # -- Search in episodes --
+    episodes = get(input, "episodes", [])
+    for ep in episodes
+        summary = get(ep, "summary", "")
+        topics = get(ep, "topics", [])
+        topics_str = join([string(t) for t in topics], " ")
+        combined = "$summary $topics_str"
+        s = score_text(combined)
+        if s > 0
+            date = get(ep, "started_at", "?")
+            date_short = length(date) >= 10 ? date[1:10] : date
+            push!(results, Dict{String,Any}(
+                "type" => "episode",
+                "title" => "Conversation du $date_short",
+                "excerpt" => length(summary) > 80 ? summary[1:77] * "..." : summary,
+                "score" => s
+            ))
+        end
+    end
+
+    # -- Search in reminders --
+    reminders = get(input, "reminders", [])
+    for r in reminders
+        text = get(r, "text", "")
+        project = get(r, "project", "")
+        combined = "$text $project"
+        s = score_text(combined)
+        if s > 0
+            status = get(r, "status", "pending")
+            push!(results, Dict{String,Any}(
+                "type" => "reminder",
+                "title" => text,
+                "excerpt" => "[$project] ($status)",
+                "score" => s
+            ))
+        end
+    end
+
+    # -- Search in culture (if provided) --
+    culture = get(input, "culture", [])
+    for entry in culture
+        topic = get(entry, "topic", "")
+        content = get(entry, "content", "")
+        tags = get(entry, "tags", [])
+        tags_str = join([string(t) for t in tags], " ")
+        combined = "$topic $content $tags_str"
+        s = score_text(combined)
+        if s > 0
+            excerpt = length(content) > 80 ? content[1:77] * "..." : content
+            source_info = ""
+            src = get(entry, "source", nothing)
+            if src !== nothing
+                sname = get(src, "name", "")
+                if sname != ""
+                    source_info = " (via $sname)"
+                end
+            end
+            push!(results, Dict{String,Any}(
+                "type" => "culture",
+                "title" => "[$topic]$source_info",
+                "excerpt" => excerpt,
+                "score" => s
+            ))
+        end
+    end
+
+    # Sort by score descending
+    sort!(results, by=r -> -r["score"])
+
+    # Group by type for stats
+    type_counts = Dict{String,Int}()
+    for r in results
+        t = r["type"]
+        type_counts[t] = get(type_counts, t, 0) + 1
+    end
+
+    respond(Dict{String,Any}(
+        "results" => results[1:min(20, length(results))],
+        "total" => length(results),
+        "by_type" => type_counts
+    ))
+end
+
+# ============================================================
 # Main Loop
 # ============================================================
 
@@ -943,6 +1121,8 @@ function main()
                 cmd_briefing(input)
             elseif cmd == "analyze_culture"
                 cmd_analyze_culture(input)
+            elseif cmd == "search"
+                cmd_search(input)
             else
                 respond_error("Unknown command: $cmd")
             end

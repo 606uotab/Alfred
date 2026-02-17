@@ -265,6 +265,134 @@ defmodule Alfred.Brain.Commands do
     end
   end
 
+  @doc """
+  Recherche universelle — cherche dans projets, tâches, notes, mémoire, rappels.
+  """
+  def handle_search(query) do
+    Butler.say("Recherche de \"#{query}\" en cours...\n")
+
+    # Collect all searchable data
+    projects_data = collect_search_projects()
+    tasks_data = collect_search_tasks()
+    notes_data = collect_search_notes()
+    facts_data = collect_search_facts()
+    episodes_data = collect_search_episodes()
+    reminders_data = collect_all_reminders()
+
+    payload = %{
+      cmd: "search",
+      query: query,
+      projects: projects_data,
+      tasks: tasks_data,
+      notes: notes_data,
+      facts: facts_data,
+      episodes: episodes_data,
+      reminders: reminders_data,
+      culture: []
+    }
+
+    case Brain.send_command(payload) do
+      {:ok, resp} ->
+        print_search_results(resp, query)
+
+      {:error, msg} ->
+        Butler.say("Erreur de recherche : #{msg}")
+    end
+  end
+
+  defp collect_search_projects do
+    Projects.list()
+    |> Enum.map(fn p -> %{"name" => p.name} end)
+  end
+
+  defp collect_search_tasks do
+    Tasks.list_all()
+    |> Enum.map(fn t ->
+      %{
+        "description" => t.description,
+        "project" => t.project,
+        "status" => t.status,
+        "priority" => t.priority
+      }
+    end)
+  end
+
+  defp collect_search_notes do
+    Notes.list_all()
+    |> Enum.map(fn n ->
+      %{"text" => n.text, "project" => n.project}
+    end)
+  end
+
+  defp collect_search_facts do
+    Alfred.Memory.Semantic.all_facts()
+  end
+
+  defp collect_search_episodes do
+    Episodic.list_episodes()
+  end
+
+  defp print_search_results(resp, query) do
+    results = Map.get(resp, "results", [])
+    total = Map.get(resp, "total", 0)
+    by_type = Map.get(resp, "by_type", %{})
+
+    if total == 0 do
+      Butler.say("Aucun résultat pour \"#{query}\", Monsieur.")
+    else
+      shown = length(results)
+      Butler.say("#{total} résultat(s) pour \"#{query}\" :\n")
+
+      # Type labels and icons
+      type_info = %{
+        "project" => {"📁", "Projet"},
+        "task" => {"✅", "Tâche"},
+        "note" => {"📝", "Note"},
+        "fact" => {"🧠", "Mémoire"},
+        "episode" => {"💬", "Conversation"},
+        "reminder" => {"🔔", "Rappel"},
+        "culture" => {"📚", "Culture"}
+      }
+
+      # Print results grouped by type
+      results
+      |> Enum.group_by(& &1["type"])
+      |> Enum.each(fn {type, items} ->
+        {icon, label} = Map.get(type_info, type, {"•", type})
+        IO.puts("  #{icon} #{label} (#{length(items)})")
+        IO.puts("  #{String.duplicate("─", 30)}")
+
+        Enum.each(items, fn item ->
+          title = Map.get(item, "title", "")
+          excerpt = Map.get(item, "excerpt", "")
+          IO.puts("    #{title}")
+          if excerpt != "" do
+            IO.puts("      #{excerpt}")
+          end
+        end)
+
+        IO.puts("")
+      end)
+
+      if total > shown do
+        IO.puts("  ... et #{total - shown} autres résultats.\n")
+      end
+
+      # Summary by type
+      if map_size(by_type) > 1 do
+        parts =
+          by_type
+          |> Enum.map(fn {type, count} ->
+            {_, label} = Map.get(type_info, type, {"", type})
+            "#{count} #{String.downcase(label)}(s)"
+          end)
+          |> Enum.join(", ")
+
+        IO.puts("  Répartition : #{parts}\n")
+      end
+    end
+  end
+
   # -- Data collectors for briefing --
 
   defp collect_all_projects do
