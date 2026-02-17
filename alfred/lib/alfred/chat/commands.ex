@@ -6,7 +6,7 @@ defmodule Alfred.Chat.Commands do
 
   alias Alfred.Butler
   alias Alfred.Chat.{Client, Session, SystemPrompt}
-  alias Alfred.Memory.{Episodic, Semantic, Procedural}
+  alias Alfred.Memory.{Episodic, Extractor, Semantic, Procedural}
 
   @doc """
   Mode chat interactif — boucle de conversation.
@@ -38,7 +38,7 @@ defmodule Alfred.Chat.Commands do
           {:ok, response} ->
             Butler.say(response)
             session = Session.add_message(session, "assistant", response)
-            save_conversation(session)
+            save_conversation(session, token)
 
           {:error, reason} ->
             Butler.say("Je suis navré Monsieur, une erreur est survenue : #{reason}")
@@ -54,13 +54,13 @@ defmodule Alfred.Chat.Commands do
   defp chat_loop(session, token) do
     case IO.gets("  Vous : ") do
       :eof ->
-        end_chat(session)
+        end_chat(session, token)
 
       input ->
         input = String.trim(input)
 
         if input in ["quit", "exit", "q", "au revoir", ""] do
-          end_chat(session)
+          end_chat(session, token)
         else
           session = Session.add_message(session, "user", input)
           messages = Session.to_api_messages(session)
@@ -90,10 +90,10 @@ defmodule Alfred.Chat.Commands do
     end
   end
 
-  defp end_chat(session) do
+  defp end_chat(session, token) do
     if Session.message_count(session) > 0 do
       Butler.say("Très bien Monsieur. Ce fut un plaisir de converser avec vous.")
-      save_conversation(session)
+      save_conversation(session, token)
     else
       Butler.say("Au revoir, Monsieur.")
     end
@@ -133,12 +133,35 @@ defmodule Alfred.Chat.Commands do
     end
   end
 
-  # -- Sauvegarde épisodique --
+  # -- Sauvegarde épisodique + extraction de faits --
 
-  defp save_conversation(session) do
+  defp save_conversation(session, token) do
     episode = Session.to_episode(session)
-    Episodic.save_episode(episode)
+    {:ok, saved} = Episodic.save_episode(episode)
+
+    messages = session.messages
+    extract_facts(messages, token, saved["id"])
   end
+
+  defp extract_facts([_, _ | _] = messages, token, _episode_id) do
+    # Tenter l'extraction via Mistral d'abord, fallback local
+    case Extractor.extract_via_mistral(messages, token) do
+      {:ok, [_ | _] = facts} ->
+        Butler.say("(#{length(facts)} fait(s) mémorisé(s))")
+
+      _ ->
+        # Fallback : extraction locale sans API
+        case Extractor.extract_local(messages) do
+          {:ok, [_ | _] = facts} ->
+            Butler.say("(#{length(facts)} fait(s) mémorisé(s))")
+
+          _ ->
+            :ok
+        end
+    end
+  end
+
+  defp extract_facts(_messages, _token, _episode_id), do: :ok
 
   # -- Récupération du token Mistral --
 
