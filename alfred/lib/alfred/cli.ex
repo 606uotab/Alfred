@@ -74,6 +74,16 @@ defmodule Alfred.CLI do
       ["remind"] ->
         Alfred.Remind.Commands.handle([])
 
+      ["chat"] ->
+        Alfred.Chat.Commands.handle_chat()
+
+      ["ask" | rest] when rest != [] ->
+        question = Enum.join(rest, " ")
+        Alfred.Chat.Commands.handle_ask(question)
+
+      ["memory" | memory_args] ->
+        Alfred.Memory.Commands.handle(memory_args)
+
       ["think", "about" | rest] when rest != [] ->
         project = Enum.join(rest, " ")
         Alfred.Brain.Commands.handle_analyze(project)
@@ -84,6 +94,9 @@ defmodule Alfred.CLI do
 
       ["suggest"] ->
         Alfred.Brain.Commands.handle_suggest()
+
+      ["cortex" | cortex_args] ->
+        Alfred.Cortex.Commands.handle(cortex_args)
 
       ["health"] ->
         health()
@@ -331,6 +344,8 @@ defmodule Alfred.CLI do
   defp organ_label(:storage), do: "Mémoire (Stockage)"
   defp organ_label(:scheduler), do: "Muscles (Scheduler)"
   defp organ_label(:brain), do: "Cerveau (Julia)"
+  defp organ_label(:cortex), do: "Cortex (R)"
+  defp organ_label(:mistral), do: "Langage (Mistral AI)"
   defp organ_label(other), do: "#{other}"
 
   defp organ_details(:beam, info) do
@@ -347,6 +362,23 @@ defmodule Alfred.CLI do
 
   defp organ_details(:storage, info) do
     if info.writable, do: "Répertoire accessible", else: "Répertoire inaccessible"
+  end
+
+  defp organ_details(:cortex, info) do
+    case {info.r_found, info.script_found} do
+      {true, true} -> "R OK, script présent"
+      {true, false} -> "R OK, script introuvable"
+      {false, _} -> "R introuvable"
+    end
+  end
+
+  defp organ_details(:mistral, info) do
+    case {info.configured, info.source} do
+      {true, :env} -> "Clé API configurée (env)"
+      {:possible, :vault} -> "Clé possible dans le coffre-fort"
+      {false, _} -> "Clé API non configurée"
+      _ -> "Statut inconnu"
+    end
   end
 
   defp organ_details(:brain, info) do
@@ -390,6 +422,13 @@ defmodule Alfred.CLI do
       alfred vault delete <clé>                  Supprimer un secret
       alfred vault note <texte>                  Note confidentielle chiffrée
       alfred vault notes                         Lister les notes chiffrées
+
+      alfred chat                                Conversation interactive
+      alfred ask <question>                       Question ponctuelle
+      alfred memory facts                         Faits mémorisés
+      alfred memory search <mots>                 Rechercher dans la mémoire
+      alfred memory episodes                      Historique des conversations
+      alfred memory forget <id>                   Oublier un fait
 
       alfred think about <projet>                Analyse intelligente
       alfred summarize <projet>                   Résumé du projet

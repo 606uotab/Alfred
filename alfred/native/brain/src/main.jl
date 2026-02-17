@@ -316,6 +316,160 @@ function extract_keywords(text::String; min_length=3, top_n=10)
 end
 
 # ============================================================
+# Extract Facts — Extract facts from conversation messages
+# ============================================================
+
+function cmd_extract_facts(input)
+    messages = get(input, "messages", [])
+
+    if isempty(messages)
+        respond(Dict{String,Any}("facts" => Any[]))
+        return
+    end
+
+    facts = Dict{String,Any}[]
+
+    # Analyze user messages for patterns
+    user_texts = String[]
+    for msg in messages
+        if get(msg, "role", "") == "user"
+            push!(user_texts, get(msg, "content", ""))
+        end
+    end
+
+    all_user_text = join(user_texts, " ")
+
+    # Extract keywords as topics
+    keywords = extract_keywords(all_user_text, top_n=5)
+    if !isempty(keywords)
+        push!(facts, Dict{String,Any}(
+            "category" => "knowledge",
+            "subject" => "topics",
+            "content" => "Sujets abordés : " * join(keywords, ", "),
+            "confidence" => 0.6
+        ))
+    end
+
+    # Detect preferences (je préfère, j'aime, etc.)
+    for text in user_texts
+        lt = lowercase(text)
+        if occursin(r"je (préfère|prefere|aime|adore|déteste|deteste)", lt)
+            push!(facts, Dict{String,Any}(
+                "category" => "preferences",
+                "subject" => "preference",
+                "content" => length(text) > 200 ? text[1:200] : text,
+                "confidence" => 0.7
+            ))
+        end
+        if occursin(r"je (suis|travaille|fais|habite)", lt)
+            push!(facts, Dict{String,Any}(
+                "category" => "personal_info",
+                "subject" => "info",
+                "content" => length(text) > 200 ? text[1:200] : text,
+                "confidence" => 0.6
+            ))
+        end
+    end
+
+    respond(Dict{String,Any}("facts" => facts))
+end
+
+# ============================================================
+# Summarize Episode — Create a concise episode summary
+# ============================================================
+
+function cmd_summarize_episode(input)
+    messages = get(input, "messages", [])
+
+    if isempty(messages)
+        respond(Dict{String,Any}("summary" => "Conversation vide."))
+        return
+    end
+
+    # Count messages by role
+    user_count = count(m -> get(m, "role", "") == "user", messages)
+    assistant_count = count(m -> get(m, "role", "") == "assistant", messages)
+
+    # Extract topics from user messages
+    user_texts = [get(m, "content", "") for m in messages if get(m, "role", "") == "user"]
+    all_text = join(user_texts, " ")
+    keywords = extract_keywords(all_text, top_n=5)
+
+    topic_str = isempty(keywords) ? "divers" : join(keywords, ", ")
+    summary = "Échange de $(user_count + assistant_count) messages. Sujets : $(topic_str)."
+
+    respond(Dict{String,Any}("summary" => summary, "topics" => keywords))
+end
+
+# ============================================================
+# Detect Patterns — Analyze episodes for behavioral patterns
+# ============================================================
+
+function cmd_detect_patterns(input)
+    episodes = get(input, "episodes", [])
+    patterns = Dict{String,Any}[]
+
+    if length(episodes) < 3
+        respond(Dict{String,Any}("patterns" => patterns))
+        return
+    end
+
+    # Analyze conversation frequency
+    # Detect recurring topics across episodes
+    all_topics = String[]
+    message_counts = Int[]
+
+    for ep in episodes
+        topics = get(ep, "topics", [])
+        for t in topics
+            push!(all_topics, string(t))
+        end
+        push!(message_counts, get(ep, "message_count", 0))
+    end
+
+    if !isempty(all_topics)
+        topic_freq = Dict{String,Int}()
+        for t in all_topics
+            topic_freq[t] = get(topic_freq, t, 0) + 1
+        end
+        sorted = sort(collect(topic_freq), by=x -> -x[2])
+
+        # Topics appearing in > 30% of episodes
+        threshold = max(2, round(Int, length(episodes) * 0.3))
+        recurring = filter(x -> x[2] >= threshold, sorted)
+
+        if !isempty(recurring)
+            topics_str = join([p[1] for p in recurring[1:min(3, length(recurring))]], ", ")
+            push!(patterns, Dict{String,Any}(
+                "pattern_type" => "recurring_topics",
+                "description" => "Monsieur aborde régulièrement : $(topics_str).",
+                "confidence" => min(1.0, recurring[1][2] / length(episodes))
+            ))
+        end
+    end
+
+    # Analyze conversation length patterns
+    if !isempty(message_counts)
+        avg_msgs = round(mean(message_counts), digits=1)
+        if avg_msgs > 10
+            push!(patterns, Dict{String,Any}(
+                "pattern_type" => "behavioral",
+                "description" => "Monsieur engage des conversations approfondies ($(avg_msgs) messages en moyenne).",
+                "confidence" => 0.7
+            ))
+        elseif avg_msgs < 4
+            push!(patterns, Dict{String,Any}(
+                "pattern_type" => "behavioral",
+                "description" => "Monsieur préfère des échanges courts et efficaces.",
+                "confidence" => 0.7
+            ))
+        end
+    end
+
+    respond(Dict{String,Any}("patterns" => patterns))
+end
+
+# ============================================================
 # Main Loop
 # ============================================================
 
@@ -334,6 +488,12 @@ function main()
                 cmd_summarize(input)
             elseif cmd == "suggest"
                 cmd_suggest(input)
+            elseif cmd == "extract_facts"
+                cmd_extract_facts(input)
+            elseif cmd == "summarize_episode"
+                cmd_summarize_episode(input)
+            elseif cmd == "detect_patterns"
+                cmd_detect_patterns(input)
             else
                 respond_error("Unknown command: $cmd")
             end

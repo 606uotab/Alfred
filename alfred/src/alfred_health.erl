@@ -5,7 +5,7 @@
 -module(alfred_health).
 
 -export([check_all/0, check_beam/0, check_vault/0, check_storage/0,
-         check_scheduler/0, check_brain/0]).
+         check_scheduler/0, check_brain/0, check_cortex/0, check_mistral/0]).
 
 %% @doc Check the health of all Alfred components.
 -spec check_all() -> list({atom(), map()}).
@@ -15,7 +15,9 @@ check_all() ->
         {vault, check_vault()},
         {storage, check_storage()},
         {scheduler, check_scheduler()},
-        {brain, check_brain()}
+        {brain, check_brain()},
+        {cortex, check_cortex()},
+        {mistral, check_mistral()}
     ].
 
 %% @doc BEAM VM status.
@@ -110,6 +112,38 @@ check_brain() ->
             #{status => warning, julia_found => true, script_found => false};
         {false, _} ->
             #{status => warning, julia_found => false, script_found => ScriptFound}
+    end.
+
+%% @doc Check if R/Rscript is available.
+check_cortex() ->
+    RscriptPaths = ["/usr/bin/Rscript", "/usr/local/bin/Rscript"],
+    RFound = lists:any(fun(P) -> filelib:is_file(P) end, RscriptPaths),
+    ScriptPath = "native/cortex/src/main.R",
+    ScriptFound = filelib:is_file(ScriptPath),
+    case {RFound, ScriptFound} of
+        {true, true} ->
+            #{status => ok, r_found => true, script_found => true};
+        {true, false} ->
+            #{status => warning, r_found => true, script_found => false};
+        {false, _} ->
+            #{status => warning, r_found => false, script_found => ScriptFound}
+    end.
+
+%% @doc Check if Mistral API key is configured.
+check_mistral() ->
+    %% Check env var first
+    case os:getenv("MISTRAL_API_KEY") of
+        false ->
+            %% Check if vault file exists (key might be there)
+            VaultFile = vault_file_path(),
+            case filelib:is_file(VaultFile) of
+                true ->
+                    #{status => ok, source => vault, configured => possible};
+                false ->
+                    #{status => warning, source => none, configured => false}
+            end;
+        _Key ->
+            #{status => ok, source => env, configured => true}
     end.
 
 %%====================================================================

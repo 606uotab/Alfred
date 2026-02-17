@@ -11,6 +11,16 @@ defmodule Alfred.Storage.Local do
     end
   end
 
+  def ensure_subdir!(subdir) do
+    dir = Path.join(Alfred.data_dir(), subdir)
+
+    unless File.exists?(dir) do
+      File.mkdir_p!(dir)
+    end
+
+    dir
+  end
+
   def read(filename) do
     path = filepath(filename)
 
@@ -24,8 +34,8 @@ defmodule Alfred.Storage.Local do
   end
 
   def write(filename, data) do
-    ensure_data_dir!()
     path = filepath(filename)
+    File.mkdir_p!(Path.dirname(path))
     json = Jason.encode!(data, pretty: true)
     File.write!(path, json)
   end
