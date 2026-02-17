@@ -222,6 +222,79 @@ defmodule Alfred.BrainTest do
     end
   end
 
+  describe "Alfred.Brain.Port briefing" do
+    test "briefing command works with empty data" do
+      result = Alfred.Brain.Port.send_command(%{
+        cmd: "briefing",
+        projects: [],
+        reminders: [],
+        culture: [],
+        patterns: [],
+        last_episode: nil,
+        now: System.system_time(:second)
+      })
+
+      assert {:ok, resp} = result
+      assert resp["status"] == "ok"
+      assert is_list(resp["sections"])
+      assert is_binary(resp["conclusion"])
+    end
+
+    test "briefing command works with projects and reminders" do
+      result = Alfred.Brain.Port.send_command(%{
+        cmd: "briefing",
+        projects: [
+          %{
+            "name" => "Projet X",
+            "tasks" => [
+              %{"status" => "pending", "priority" => 5, "description" => "Urgent task", "created_at" => "2026-02-10T10:00:00Z"},
+              %{"status" => "done", "priority" => 1, "description" => "Done task"}
+            ],
+            "notes" => [],
+            "reminders" => []
+          }
+        ],
+        reminders: [
+          %{"project" => "Projet X", "text" => "Rappel test", "status" => "pending", "due_at" => 0}
+        ],
+        culture: [
+          %{"topic" => "botanique", "content" => "Les orchidées", "source" => %{"type" => "person", "name" => "Annie"}, "tags" => [], "learned_at" => "2026-02-17T10:00:00Z"}
+        ],
+        patterns: [
+          %{"description" => "Monsieur travaille le matin", "pattern_type" => "behavioral", "confidence" => 0.8}
+        ],
+        last_episode: %{"summary" => "Discussion sur le projet", "message_count" => 6, "mode" => "chat"},
+        now: System.system_time(:second)
+      })
+
+      assert {:ok, resp} = result
+      assert resp["total_pending"] == 1
+      assert resp["urgent_count"] == 1
+      assert resp["overdue_reminders"] == 1
+      assert length(resp["sections"]) == 5
+    end
+  end
+
+  describe "Alfred.Brain.Commands briefing CLI" do
+    test "handle_briefing runs without crash" do
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          Alfred.Brain.Commands.handle_briefing()
+        end)
+
+      assert output =~ "briefing"
+    end
+
+    test "CLI routing for briefing" do
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          Alfred.CLI.main(["briefing"])
+        end)
+
+      assert output =~ "briefing"
+    end
+  end
+
   describe "alfred_health brain check" do
     test "brain check returns julia status" do
       info = :alfred_health.check_brain()

@@ -470,6 +470,238 @@ function cmd_detect_patterns(input)
 end
 
 # ============================================================
+# Briefing — Synthèse quotidienne intelligente
+# ============================================================
+
+function cmd_briefing(input)
+    projects = get(input, "projects", [])
+    reminders = get(input, "reminders", [])
+    culture = get(input, "culture", [])
+    patterns = get(input, "patterns", [])
+    last_episode = get(input, "last_episode", nothing)
+    now_ts = get(input, "now", round(Int, time()))
+
+    sections = Dict{String,Any}[]
+
+    # -- 1. Tâches urgentes et en retard --
+    urgent_items = String[]
+    overdue_items = String[]
+    total_pending = 0
+
+    for proj in projects
+        name = get(proj, "name", "?")
+        tasks = get(proj, "tasks", [])
+        pending = filter(t -> t["status"] == "pending", tasks)
+        total_pending += length(pending)
+
+        # High priority tasks
+        for t in pending
+            prio = get(t, "priority", 1)
+            if prio >= 4
+                push!(urgent_items, "$(t["description"]) [$(name), P$(prio)]")
+            end
+        end
+
+        # Stale tasks (> 7 days)
+        for t in pending
+            created = get(t, "created_at", "")
+            if created != ""
+                try
+                    dt = DateTime(created[1:min(19, length(created))])
+                    age_days = (now_ts - round(Int, datetime2unix(dt))) / 86400
+                    if age_days > 7
+                        push!(overdue_items, "$(t["description"]) [$(name), $(round(Int, age_days))j]")
+                    end
+                catch
+                end
+            end
+        end
+    end
+
+    tasks_lines = String[]
+    if !isempty(urgent_items)
+        push!(tasks_lines, "Priorités hautes :")
+        for item in urgent_items[1:min(5, length(urgent_items))]
+            push!(tasks_lines, "  ⚡ $item")
+        end
+    end
+    if !isempty(overdue_items)
+        push!(tasks_lines, "En attente depuis longtemps :")
+        for item in overdue_items[1:min(5, length(overdue_items))]
+            push!(tasks_lines, "  ⏳ $item")
+        end
+    end
+    if total_pending > 0
+        push!(tasks_lines, "Total : $(total_pending) tâche(s) en attente sur $(length(projects)) projet(s).")
+    elseif !isempty(projects)
+        push!(tasks_lines, "Toutes vos tâches sont accomplies, Monsieur.")
+    end
+
+    if !isempty(tasks_lines)
+        push!(sections, Dict{String,Any}(
+            "title" => "Tâches",
+            "icon" => "📋",
+            "lines" => tasks_lines
+        ))
+    end
+
+    # -- 2. Rappels du jour --
+    reminder_lines = String[]
+    due_today = []
+    overdue_reminders = []
+
+    for r in reminders
+        status = get(r, "status", "pending")
+        if status == "pending" || status == "active"
+            due_at = get(r, "due_at", 0)
+            if due_at <= now_ts
+                push!(overdue_reminders, r)
+            elseif due_at <= now_ts + 86400  # within next 24h
+                push!(due_today, r)
+            end
+        end
+    end
+
+    if !isempty(overdue_reminders)
+        push!(reminder_lines, "En retard :")
+        for r in overdue_reminders
+            push!(reminder_lines, "  🔴 $(get(r, "text", "?")) [$(get(r, "project", "?"))]")
+        end
+    end
+    if !isempty(due_today)
+        push!(reminder_lines, "Aujourd'hui :")
+        for r in due_today
+            push!(reminder_lines, "  🟡 $(get(r, "text", "?")) [$(get(r, "project", "?"))]")
+        end
+    end
+    if isempty(overdue_reminders) && isempty(due_today)
+        push!(reminder_lines, "Aucun rappel urgent.")
+    end
+
+    push!(sections, Dict{String,Any}(
+        "title" => "Rappels",
+        "icon" => "🔔",
+        "lines" => reminder_lines
+    ))
+
+    # -- 3. Culture récente --
+    culture_lines = String[]
+    if !isempty(culture)
+        # Group by topic
+        topics = Dict{String,Int}()
+        recent = []
+        for entry in culture
+            topic = get(entry, "topic", "divers")
+            topics[topic] = get(topics, topic, 0) + 1
+            # Check if learned recently (last 7 days)
+            learned_at = get(entry, "learned_at", "")
+            if learned_at != ""
+                try
+                    dt = DateTime(learned_at[1:min(19, length(learned_at))])
+                    age_days = (now_ts - round(Int, datetime2unix(dt))) / 86400
+                    if age_days <= 7
+                        push!(recent, entry)
+                    end
+                catch
+                end
+            end
+        end
+
+        push!(culture_lines, "$(length(culture)) connaissances en $(length(topics)) sujet(s).")
+
+        if !isempty(recent)
+            push!(culture_lines, "Récemment acquises :")
+            for entry in recent[1:min(3, length(recent))]
+                source_name = ""
+                src = get(entry, "source", nothing)
+                if src !== nothing
+                    source_name = get(src, "name", get(src, "type", ""))
+                end
+                suffix = source_name != "" ? " (via $source_name)" : ""
+                push!(culture_lines, "  📚 [$(get(entry, "topic", "?"))] $(get(entry, "content", ""))$suffix")
+            end
+        end
+
+        # Top topics
+        if length(topics) > 1
+            sorted_topics = sort(collect(topics), by=x -> -x[2])
+            top = sorted_topics[1:min(3, length(sorted_topics))]
+            top_str = join(["$(t[1]) ($(t[2]))" for t in top], ", ")
+            push!(culture_lines, "Sujets principaux : $top_str")
+        end
+    else
+        push!(culture_lines, "Culture encore vierge. Utilisez 'alfred culture learn' pour m'enseigner.")
+    end
+
+    push!(sections, Dict{String,Any}(
+        "title" => "Culture",
+        "icon" => "📖",
+        "lines" => culture_lines
+    ))
+
+    # -- 4. Patterns et habitudes --
+    pattern_lines = String[]
+    if !isempty(patterns)
+        for p in patterns[1:min(3, length(patterns))]
+            desc = get(p, "description", "")
+            if desc != ""
+                push!(pattern_lines, "  🔄 $desc")
+            end
+        end
+    end
+    if isempty(pattern_lines)
+        push!(pattern_lines, "Pas encore assez de données pour détecter des habitudes.")
+    end
+
+    push!(sections, Dict{String,Any}(
+        "title" => "Habitudes",
+        "icon" => "🧠",
+        "lines" => pattern_lines
+    ))
+
+    # -- 5. Dernière conversation --
+    episode_lines = String[]
+    if last_episode !== nothing
+        summary = get(last_episode, "summary", nothing)
+        msg_count = get(last_episode, "message_count", 0)
+        mode = get(last_episode, "mode", "chat")
+
+        if summary !== nothing && summary != ""
+            push!(episode_lines, summary)
+        elseif msg_count > 0
+            push!(episode_lines, "Dernier échange : $(msg_count) messages (mode $(mode)).")
+        end
+    end
+    if isempty(episode_lines)
+        push!(episode_lines, "Pas de conversation récente.")
+    end
+
+    push!(sections, Dict{String,Any}(
+        "title" => "Dernière conversation",
+        "icon" => "💬",
+        "lines" => episode_lines
+    ))
+
+    # -- Mot de conclusion --
+    conclusion = ""
+    if total_pending == 0 && isempty(overdue_reminders)
+        conclusion = "Votre agenda est dégagé, Monsieur. Belle journée en perspective."
+    elseif !isempty(overdue_reminders) || length(urgent_items) > 2
+        conclusion = "Journée chargée en perspective, Monsieur. Je vous recommande de traiter les urgences en priorité."
+    else
+        conclusion = "Bonne journée, Monsieur."
+    end
+
+    respond(Dict{String,Any}(
+        "sections" => sections,
+        "conclusion" => conclusion,
+        "total_pending" => total_pending,
+        "urgent_count" => length(urgent_items),
+        "overdue_reminders" => length(overdue_reminders)
+    ))
+end
+
+# ============================================================
 # Main Loop
 # ============================================================
 
@@ -494,6 +726,8 @@ function main()
                 cmd_summarize_episode(input)
             elseif cmd == "detect_patterns"
                 cmd_detect_patterns(input)
+            elseif cmd == "briefing"
+                cmd_briefing(input)
             else
                 respond_error("Unknown command: $cmd")
             end

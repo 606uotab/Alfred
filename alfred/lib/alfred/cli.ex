@@ -106,6 +106,9 @@ defmodule Alfred.CLI do
       ["memory" | memory_args] ->
         Alfred.Memory.Commands.handle(memory_args)
 
+      ["briefing"] ->
+        Alfred.Brain.Commands.handle_briefing()
+
       ["think", "about" | rest] when rest != [] ->
         project = Enum.join(rest, " ")
         Alfred.Brain.Commands.handle_analyze(project)
@@ -581,6 +584,7 @@ defmodule Alfred.CLI do
       alfred memory episodes                     Historique des conversations
       alfred memory forget <id>                  Oublier un fait
 
+      alfred briefing                           Synthèse quotidienne
       alfred think about <projet>                Analyse intelligente
       alfred summarize <projet>                  Résumé du projet
       alfred suggest                             Suggestions transversales

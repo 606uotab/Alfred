@@ -9,6 +9,7 @@ defmodule Alfred.Brain.Commands do
   alias Alfred.Projects.Manager, as: Projects
   alias Alfred.Projects.Task, as: Tasks
   alias Alfred.Projects.Note, as: Notes
+  alias Alfred.Memory.{Episodic, Procedural}
 
   @doc """
   Analyse approfondie d'un projet.
@@ -85,6 +86,114 @@ defmodule Alfred.Brain.Commands do
 
       {:error, msg} ->
         Butler.say("Je suis navré Monsieur, mon cerveau rencontre une difficulté : #{msg}")
+    end
+  end
+
+  @doc """
+  Synthèse quotidienne — croise projets, rappels, culture, patterns, conversations.
+  """
+  def handle_briefing do
+    Butler.say("Votre briefing du jour, Monsieur :\n")
+
+    # Collect all data
+    projects_data = collect_all_projects()
+    reminders_data = collect_all_reminders()
+    culture_data = collect_culture()
+    patterns_data = collect_patterns()
+    last_episode = collect_last_episode()
+
+    payload = %{
+      cmd: "briefing",
+      projects: projects_data,
+      reminders: reminders_data,
+      culture: culture_data,
+      patterns: patterns_data,
+      last_episode: last_episode,
+      now: now()
+    }
+
+    case Brain.send_command(payload) do
+      {:ok, resp} ->
+        sections = Map.get(resp, "sections", [])
+        conclusion = Map.get(resp, "conclusion", "")
+
+        Enum.each(sections, fn section ->
+          icon = Map.get(section, "icon", "•")
+          title = Map.get(section, "title", "")
+          lines = Map.get(section, "lines", [])
+
+          IO.puts("  #{icon} #{title}")
+          IO.puts("  #{String.duplicate("─", String.length(title) + 2)}")
+
+          Enum.each(lines, fn line ->
+            IO.puts("  #{line}")
+          end)
+
+          IO.puts("")
+        end)
+
+        if conclusion != "" do
+          Butler.say(conclusion)
+        end
+
+      {:error, msg} ->
+        Butler.say("Je suis navré Monsieur, mon cerveau rencontre une difficulté : #{msg}")
+    end
+  end
+
+  # -- Data collectors for briefing --
+
+  defp collect_all_projects do
+    Projects.list()
+    |> Enum.map(fn p -> build_project_data(p.name) end)
+  end
+
+  defp collect_all_reminders do
+    case :alfred_scheduler.list_reminders() do
+      {:ok, reminders} ->
+        Enum.map(reminders, fn r ->
+          %{
+            "project" => r.project,
+            "text" => r.text,
+            "status" => Atom.to_string(r.status),
+            "due_at" => r.due_at
+          }
+        end)
+
+      _ ->
+        []
+    end
+  end
+
+  defp collect_culture do
+    # Culture is in the vault — we can't read it without a password in non-interactive mode.
+    # Return empty; briefing will still work with other data.
+    # In interactive mode (chat), culture is passed separately.
+    []
+  end
+
+  defp collect_patterns do
+    Procedural.active_patterns()
+    |> Enum.map(fn p ->
+      %{
+        "description" => p["description"],
+        "pattern_type" => p["pattern_type"],
+        "confidence" => p["confidence"]
+      }
+    end)
+  end
+
+  defp collect_last_episode do
+    case Episodic.list_episodes() do
+      [latest | _] ->
+        %{
+          "summary" => latest["summary"],
+          "message_count" => latest["message_count"],
+          "mode" => latest["mode"]
+        }
+
+      _ ->
+        nil
     end
   end
 
