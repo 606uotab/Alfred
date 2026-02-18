@@ -7,7 +7,6 @@ defmodule Alfred.Cortex.Commands do
   alias Alfred.Butler
   alias Alfred.Cortex.Port, as: Cortex
   alias Alfred.Memory.{Episodic, Semantic}
-  alias Alfred.Projects.{Manager, Task, Note}
 
   def handle(["trends"]) do
     episodes = Episodic.list_episodes()
@@ -87,7 +86,7 @@ defmodule Alfred.Cortex.Commands do
   end
 
   def handle(["productivity"]) do
-    projects_data = collect_projects_with_reminders()
+    projects_data = Alfred.ProjectData.all_for_startup()
 
     case Cortex.send_command(%{cmd: "productivity_stats", projects: projects_data}) do
       {:ok, resp} ->
@@ -172,7 +171,7 @@ defmodule Alfred.Cortex.Commands do
     password = Alfred.Input.prompt_password("Mot de passe (admin ou maître) : ")
 
     episodes = Episodic.list_episodes()
-    projects_data = collect_projects_with_notes()
+    projects_data = Alfred.ProjectData.all_for_brain()
 
     culture =
       case Alfred.Culture.list_all(password) do
@@ -232,47 +231,6 @@ defmodule Alfred.Cortex.Commands do
   end
 
   # -- Helpers --
-
-  defp collect_projects_with_reminders do
-    Manager.list()
-    |> Enum.map(fn p ->
-      tasks = Task.list_for_project(p.name)
-
-      reminders =
-        case :alfred_scheduler.list_reminders() do
-          {:ok, rs} ->
-            rs
-            |> Enum.filter(&(&1.project == p.name))
-            |> Enum.map(fn r ->
-              %{"status" => Atom.to_string(r.status), "due_at" => r.due_at, "text" => r.text}
-            end)
-
-          _ ->
-            []
-        end
-
-      %{
-        "name" => p.name,
-        "tasks" =>
-          Enum.map(tasks, fn t ->
-            %{"status" => t.status, "priority" => t.priority, "description" => t.description}
-          end),
-        "reminders" => reminders
-      }
-    end)
-  end
-
-  defp collect_projects_with_notes do
-    Manager.list()
-    |> Enum.map(fn p ->
-      notes = Note.list_for_project(p.name)
-
-      %{
-        "name" => p.name,
-        "notes" => Enum.map(notes, fn n -> %{"text" => n.text} end)
-      }
-    end)
-  end
 
   defp format_trend("accelerating"), do: "en accélération"
   defp format_trend("decelerating"), do: "en ralentissement"

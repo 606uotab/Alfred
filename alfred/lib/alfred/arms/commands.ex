@@ -1,6 +1,6 @@
 defmodule Alfred.Arms.Commands do
   @moduledoc """
-  Commandes des Bras (Ada) — observation et action sur la machine hote.
+  Commandes des Bras (Ada) — observation et action sur la machine hôte.
   """
 
   alias Alfred.Butler
@@ -9,15 +9,15 @@ defmodule Alfred.Arms.Commands do
   def handle(["status"]) do
     case Port.send_command(%{cmd: "system_info"}) do
       {:ok, %{"info" => info}} ->
-        Butler.say("Monsieur, voici l'etat de votre machine :\n")
+        Butler.say("Monsieur, voici l'état de votre machine :\n")
         IO.puts("  Machine   : #{info["hostname"]}")
-        IO.puts("  Systeme   : #{info["os"]}")
+        IO.puts("  Système   : #{info["os"]}")
         IO.puts("  Uptime    : #{info["uptime"]}")
         IO.puts("  Charge    : #{info["load"]}")
         IO.puts("")
 
       {:error, reason} ->
-        Butler.say("Impossible d'observer la machine : #{reason}")
+        Butler.say("Je suis navré Monsieur, impossible d'observer la machine : #{reason}")
     end
   end
 
@@ -28,12 +28,12 @@ defmodule Alfred.Arms.Commands do
 
         Enum.each(partitions, fn p ->
           pct = p["percent_used"]
-          icon = if pct >= 90, do: "!", else: "o"
+          icon = if pct >= 90, do: "!", else: "○"
           size_gb = Float.round(p["size_mb"] / 1024, 1)
           avail_gb = Float.round(p["available_mb"] / 1024, 1)
 
           IO.puts(
-            "  #{icon} #{p["mount"]}  — #{avail_gb} Go libres / #{size_gb} Go (#{pct}% utilise)"
+            "  #{icon} #{p["mount"]}  — #{avail_gb} Go libres / #{size_gb} Go (#{pct}% utilisé)"
           )
         end)
 
@@ -45,20 +45,20 @@ defmodule Alfred.Arms.Commands do
         IO.puts("")
 
       {:error, reason} ->
-        Butler.say("Impossible d'analyser les disques : #{reason}")
+        Butler.say("Je suis navré Monsieur, impossible d'analyser les disques : #{reason}")
     end
   end
 
   def handle(["memory"]) do
     case Port.send_command(%{cmd: "memory_usage"}) do
       {:ok, %{"memory" => mem}} ->
-        Butler.say("Monsieur, voici l'etat de la memoire :\n")
+        Butler.say("Monsieur, voici l'état de la mémoire :\n")
 
         total_gb = Float.round(mem["total_mb"] / 1024, 1)
         used_gb = Float.round(mem["used_mb"] / 1024, 1)
         avail_gb = Float.round(mem["available_mb"] / 1024, 1)
 
-        IO.puts("  RAM       : #{used_gb} Go utilises / #{total_gb} Go (#{mem["percent_used"]}%)")
+        IO.puts("  RAM       : #{used_gb} Go utilisés / #{total_gb} Go (#{mem["percent_used"]}%)")
         IO.puts("  Disponible: #{avail_gb} Go")
 
         if mem["swap_total_mb"] > 0 do
@@ -69,13 +69,13 @@ defmodule Alfred.Arms.Commands do
 
         if mem["alert"] do
           IO.puts("")
-          IO.puts("  /!\\ Attention : memoire disponible critique !")
+          IO.puts("  /!\\ Attention : mémoire disponible critique !")
         end
 
         IO.puts("")
 
       {:error, reason} ->
-        Butler.say("Impossible d'analyser la memoire : #{reason}")
+        Butler.say("Je suis navré Monsieur, impossible d'analyser la mémoire : #{reason}")
     end
   end
 
@@ -87,13 +87,13 @@ defmodule Alfred.Arms.Commands do
     case Port.send_command(%{cmd: "backup", data_dir: data_dir}) do
       {:ok, %{"backup" => backup}} ->
         size = format_size(backup["size_bytes"] || backup["size_kb"] * 1024)
-        Butler.say("Sauvegarde terminee avec succes.")
+        Butler.say("Sauvegarde terminée avec succès.")
         IO.puts("  Fichier : #{backup["path"]}")
         IO.puts("  Taille  : #{size}")
         IO.puts("")
 
       {:error, reason} ->
-        Butler.say("Erreur lors de la sauvegarde : #{reason}")
+        Butler.say("Je suis navré Monsieur, erreur lors de la sauvegarde : #{reason}")
     end
   end
 
@@ -105,15 +105,15 @@ defmodule Alfred.Arms.Commands do
     Butler.say("Monsieur, les commandes des Bras (Ada) sont :\n")
 
     IO.puts("""
-      alfred arms status    Etat de la machine (hostname, OS, uptime, charge)
+      alfred arms status    État de la machine (hostname, OS, uptime, charge)
       alfred arms disk      Utilisation des disques
-      alfred arms memory    Etat de la memoire (RAM, swap)
-      alfred arms backup    Sauvegarder les donnees d'Alfred
+      alfred arms memory    État de la mémoire (RAM, swap)
+      alfred arms backup    Sauvegarder les données d'Alfred
     """)
   end
 
   def handle(unknown) do
-    Butler.say("Commande inconnue : arms #{Enum.join(unknown, " ")}")
+    Butler.say("Monsieur, commande inconnue : arms #{Enum.join(unknown, " ")}")
     handle(["help"])
   end
 

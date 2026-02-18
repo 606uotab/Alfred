@@ -29,6 +29,7 @@ defmodule Alfred.Butler do
   end
 
   def say(message) do
-    IO.puts("\n  🎩 Alfred : #{message}\n")
+    alias Alfred.Colors
+    IO.puts("\n  🎩 #{Colors.bold("Alfred")} : #{message}\n")
   end
 end

@@ -4,6 +4,7 @@ defmodule Alfred.CLI do
   """
 
   alias Alfred.Butler
+  alias Alfred.Colors
   alias Alfred.Projects.Manager, as: Projects
   alias Alfred.Projects.Task, as: Tasks
   alias Alfred.Projects.Note, as: Notes
@@ -452,7 +453,7 @@ defmodule Alfred.CLI do
 
     if length(projects) > 0 or reminder_count > 0 or culture_suggestions > 0 do
       IO.puts("")
-      IO.puts("  ── Aperçu rapide ──")
+      IO.puts(Colors.header("Aperçu rapide"))
       IO.puts("  #{length(projects)} projet(s), #{pending_tasks} tâche(s) en attente, #{reminder_count} rappel(s)")
 
       if culture_suggestions > 0 do
@@ -491,7 +492,7 @@ defmodule Alfred.CLI do
     cortex_info = :alfred_health.check_cortex()
 
     if cortex_info.r_found and cortex_info.script_found and projects != [] do
-      projects_data = Enum.map(projects, &build_startup_project_data/1)
+      projects_data = Enum.map(projects, &Alfred.ProjectData.build_for_startup/1)
 
       case Alfred.Cortex.Port.send_command(%{cmd: "productivity_stats", projects: projects_data}) do
         {:ok, %{"stats" => %{"one_liner" => line}}} when is_binary(line) and line != "" ->
@@ -503,32 +504,6 @@ defmodule Alfred.CLI do
     end
   rescue
     _ -> :ok
-  end
-
-  defp build_startup_project_data(project) do
-    tasks = Tasks.list_for_project(project.name)
-
-    reminders =
-      case :alfred_scheduler.list_reminders() do
-        {:ok, rs} ->
-          rs
-          |> Enum.filter(&(&1.project == project.name))
-          |> Enum.map(fn r ->
-            %{"status" => Atom.to_string(r.status), "due_at" => r.due_at, "text" => r.text}
-          end)
-
-        _ ->
-          []
-      end
-
-    %{
-      "name" => project.name,
-      "tasks" =>
-        Enum.map(tasks, fn t ->
-          %{"status" => t.status, "priority" => t.priority, "description" => t.description}
-        end),
-      "reminders" => reminders
-    }
   end
 
   # -- Status --
@@ -594,14 +569,14 @@ defmodule Alfred.CLI do
     done = Enum.count(all_tasks, &(&1.status == "done"))
     {:ok, reminder_count} = :alfred_scheduler.count_pending()
 
-    IO.puts("  ── État des affaires ──")
+    IO.puts(Colors.header("État des affaires"))
     IO.puts("  #{length(projects)} projet(s), #{pending} tâche(s) en attente, #{done} accomplies")
     IO.puts("  #{reminder_count} rappel(s)")
     IO.puts("")
 
     # Section 2: Projets
     if projects != [] do
-      IO.puts("  ── Projets ──")
+      IO.puts(Colors.header("Projets"))
 
       Enum.each(projects, fn project ->
         p_tasks = Tasks.list_for_project(project.name)
@@ -619,13 +594,13 @@ defmodule Alfred.CLI do
     episode_count = Alfred.Memory.Episodic.count()
     pattern_count = Alfred.Memory.Procedural.count_active()
 
-    IO.puts("  ── Mémoire ──")
+    IO.puts(Colors.header("Mémoire"))
     IO.puts("  #{fact_count} fait(s), #{episode_count} épisode(s), #{pattern_count} pattern(s) actif(s)")
     IO.puts("")
 
     # Section 4: Culture
     culture_suggestions = Alfred.Culture.Suggestions.count_pending()
-    IO.puts("  ── Culture ──")
+    IO.puts(Colors.header("Culture"))
     IO.puts("  #{culture_suggestions} suggestion(s) en attente d'approbation")
     IO.puts("")
 
@@ -652,7 +627,7 @@ defmodule Alfred.CLI do
   end
 
   defp dashboard_arms do
-    IO.puts("  -- Environnement (Bras/Ada) --")
+    IO.puts(Colors.header("Environnement (Bras/Ada)"))
 
     case Alfred.Arms.Port.send_command(%{cmd: "system_info"}) do
       {:ok, %{"info" => info}} ->
@@ -691,11 +666,11 @@ defmodule Alfred.CLI do
   end
 
   defp dashboard_cortex(projects) do
-    projects_data = Enum.map(projects, &build_startup_project_data/1)
+    projects_data = Enum.map(projects, &Alfred.ProjectData.build_for_startup/1)
 
     case Alfred.Cortex.Port.send_command(%{cmd: "productivity_stats", projects: projects_data}) do
       {:ok, %{"stats" => stats}} ->
-        IO.puts("  ── Tendances (Cortex/R) ──")
+        IO.puts(Colors.header("Tendances (Cortex/R)"))
 
         if line = stats["one_liner"] do
           IO.puts("  #{line}")
@@ -715,20 +690,7 @@ defmodule Alfred.CLI do
   end
 
   defp dashboard_brain(projects) do
-    projects_data =
-      Enum.map(projects, fn p ->
-        tasks = Tasks.list_for_project(p.name)
-
-        %{
-          "name" => p.name,
-          "tasks" =>
-            Enum.map(tasks, fn t ->
-              %{"status" => t.status, "priority" => t.priority, "description" => t.description}
-            end),
-          "notes" => [],
-          "reminders" => []
-        }
-      end)
+    projects_data = Enum.map(projects, &Alfred.ProjectData.build_for_startup/1)
 
     case Alfred.Brain.Port.send_command(%{
            cmd: "suggest",
@@ -736,7 +698,7 @@ defmodule Alfred.CLI do
            now: System.system_time(:second)
          }) do
       {:ok, %{"suggestions" => suggestions}} when suggestions != [] ->
-        IO.puts("  ── Suggestions (Cerveau/Julia) ──")
+        IO.puts(Colors.header("Suggestions (Cerveau/Julia)"))
 
         suggestions
         |> Enum.take(3)
@@ -761,16 +723,16 @@ defmodule Alfred.CLI do
     Enum.each(checks, fn {organ, info} ->
       status = info.status
       icon = case status do
-        :ok -> "✓"
-        :warning -> "⚠"
-        :error -> "✗"
-        :down -> "✗"
+        :ok -> Colors.icon_ok()
+        :warning -> Colors.icon_warn()
+        :error -> Colors.icon_err()
+        :down -> Colors.icon_down()
         _ -> "?"
       end
 
       label = organ_label(organ)
       details = organ_details(organ, info)
-      IO.puts("  #{icon} #{label}  —  #{details}")
+      IO.puts("  #{icon} #{Colors.bold(label)}  —  #{details}")
     end)
 
     IO.puts("")
@@ -895,10 +857,17 @@ defmodule Alfred.CLI do
       alfred suggest                             Suggestions transversales
       alfred prioritize <projet>                 Priorisation intelligente
 
-      alfred arms status                        Etat de la machine
+      alfred cortex trends                      Tendances des interactions
+      alfred cortex stats                       Statistiques de mémoire
+      alfred cortex analyze                     Analyse comportementale
+      alfred cortex productivity                Productivité des projets
+      alfred cortex culture                     Tendances culturelles
+      alfred cortex correlations                Analyse croisée
+
+      alfred arms status                        État de la machine
       alfred arms disk                          Utilisation des disques
-      alfred arms memory                        Etat de la memoire
-      alfred arms backup                        Sauvegarder les donnees
+      alfred arms memory                        État de la mémoire
+      alfred arms backup                        Sauvegarder les données
 
       alfred remind <projet> <texte> in <durée>  Programmer un rappel
       alfred remind list                         Lister les rappels
@@ -929,7 +898,7 @@ defmodule Alfred.CLI do
     tasks
     |> Enum.group_by(& &1.project)
     |> Enum.each(fn {project, project_tasks} ->
-      IO.puts("  ── #{project} ──")
+      IO.puts(Colors.header(project))
       print_tasks(project_tasks)
       IO.puts("")
     end)
@@ -946,7 +915,7 @@ defmodule Alfred.CLI do
     notes
     |> Enum.group_by(& &1.project)
     |> Enum.each(fn {project, project_notes} ->
-      IO.puts("  ── #{project} ──")
+      IO.puts(Colors.header(project))
       print_notes(project_notes)
       IO.puts("")
     end)
