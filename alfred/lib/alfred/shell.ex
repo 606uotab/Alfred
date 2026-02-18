@@ -75,7 +75,8 @@ defmodule Alfred.Shell do
             loop(state)
 
           is_command?(input) ->
-            execute(String.split(input))
+            args = input |> strip_alfred_prefix() |> String.split()
+            execute(args)
             loop(state)
 
           state != nil ->
@@ -91,8 +92,24 @@ defmodule Alfred.Shell do
   end
 
   defp is_command?(input) do
-    first_word = input |> String.split() |> List.first() |> to_string() |> String.downcase()
-    first_word in @known_commands
+    words = input |> String.split()
+    first_word = words |> List.first() |> to_string() |> String.downcase()
+
+    cond do
+      first_word in @known_commands -> true
+      first_word == "alfred" and length(words) > 1 ->
+        second_word = Enum.at(words, 1) |> to_string() |> String.downcase()
+        second_word in @known_commands
+      true -> false
+    end
+  end
+
+  defp strip_alfred_prefix(input) do
+    case String.split(input, " ", parts: 2) do
+      ["alfred", rest] -> rest
+      ["Alfred", rest] -> rest
+      _ -> input
+    end
   end
 
   defp handle_conversation(input, state) do

@@ -2,6 +2,7 @@ defmodule Alfred.Chat.Client do
   @moduledoc """
   Client HTTP pour l'API Mistral — la faculté de langage d'Alfred.
   Utilise :httpc (Erlang built-in), zéro dépendance externe.
+  Supporte le function calling (tools).
   """
 
   @api_url ~c"https://api.mistral.ai/v1/chat/completions"
@@ -12,21 +13,24 @@ defmodule Alfred.Chat.Client do
 
   @doc """
   Envoie une requête de chat completion à Mistral.
-  Retourne {:ok, response_content} ou {:error, reason}.
+  Retourne {:ok, text}, {:tool_calls, calls, assistant_msg} ou {:error, reason}.
   """
   def chat_completion(token, messages, opts \\ []) do
     ensure_http_started()
     model = Keyword.get(opts, :model, @default_model)
     temperature = Keyword.get(opts, :temperature, @default_temperature)
     max_tokens = Keyword.get(opts, :max_tokens, @default_max_tokens)
+    tools = Keyword.get(opts, :tools, nil)
 
     payload =
-      Jason.encode!(%{
+      %{
         model: model,
         messages: messages,
         temperature: temperature,
         max_tokens: max_tokens
-      })
+      }
+      |> maybe_add_tools(tools)
+      |> Jason.encode!()
 
     headers = [
       {~c"Authorization", String.to_charlist("Bearer #{token}")},
@@ -64,28 +68,34 @@ defmodule Alfred.Chat.Client do
 
   defp parse_response(body) do
     response = Jason.decode!(body)
-    content = get_in(response, ["choices", Access.at(0), "message", "content"])
+    message = get_in(response, ["choices", Access.at(0), "message"])
 
-    case content do
-      nil ->
-        {:error, "Réponse Mistral invalide"}
+    cond do
+      # Function calling — tool_calls present
+      is_map(message) and is_list(message["tool_calls"]) and message["tool_calls"] != [] ->
+        {:tool_calls, message["tool_calls"], message}
 
-      text when is_binary(text) ->
-        {:ok, text}
+      # Regular text response
+      is_map(message) and is_binary(message["content"]) ->
+        {:ok, message["content"]}
 
-      parts when is_list(parts) ->
-        # Le content peut être une liste d'objets [{type: "text", text: "..."}]
+      # Content as list of parts
+      is_map(message) and is_list(message["content"]) ->
         text =
-          parts
+          message["content"]
           |> Enum.filter(&(is_map(&1) and &1["type"] == "text"))
           |> Enum.map_join("\n", & &1["text"])
 
         if text != "", do: {:ok, text}, else: {:error, "Réponse Mistral vide"}
 
-      _ ->
-        {:error, "Format de réponse Mistral inattendu"}
+      true ->
+        {:error, "Réponse Mistral invalide"}
     end
   end
+
+  defp maybe_add_tools(payload, nil), do: payload
+  defp maybe_add_tools(payload, []), do: payload
+  defp maybe_add_tools(payload, tools), do: Map.put(payload, :tools, tools)
 
   defp ensure_http_started do
     :inets.start()

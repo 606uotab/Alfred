@@ -46,7 +46,20 @@ defmodule Alfred.Chat.Session do
 
     api_messages =
       Enum.map(session.messages, fn msg ->
-        %{"role" => msg["role"], "content" => msg["content"]}
+        base = %{"role" => msg["role"], "content" => msg["content"] || ""}
+
+        base =
+          if msg["tool_calls"] do
+            Map.put(base, "tool_calls", msg["tool_calls"])
+          else
+            base
+          end
+
+        if msg["tool_call_id"] do
+          Map.put(base, "tool_call_id", msg["tool_call_id"])
+        else
+          base
+        end
       end)
 
     [system_msg | api_messages]

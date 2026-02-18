@@ -10,6 +10,7 @@ defmodule Alfred.CLI do
   alias Alfred.Projects.Note, as: Notes
 
   def main(args \\ []) do
+    :io.setopts(:standard_io, encoding: :unicode)
     Alfred.Storage.Local.ensure_data_dir!()
     {:ok, _} = Alfred.Application.start()
 

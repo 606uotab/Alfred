@@ -105,6 +105,75 @@ defmodule Alfred.ChatTest do
     end
   end
 
+  describe "Alfred.Chat.Tools" do
+    test "definitions returns list of tools" do
+      tools = Alfred.Chat.Tools.definitions()
+      assert is_list(tools)
+      assert length(tools) >= 5
+      names = Enum.map(tools, fn t -> t.function.name end)
+      assert "note_add" in names
+      assert "task_add" in names
+      assert "remind_set" in names
+      assert "project_list" in names
+      assert "task_list" in names
+    end
+
+    test "execute project_list" do
+      result = Alfred.Chat.Tools.execute("project_list", %{})
+      assert is_binary(result)
+    end
+
+    test "execute task_list" do
+      result = Alfred.Chat.Tools.execute("task_list", %{})
+      assert is_binary(result)
+    end
+
+    test "execute note_add with nonexistent project" do
+      result = Alfred.Chat.Tools.execute("note_add", %{"project" => "Inexistant", "text" => "test"})
+      assert result =~ "n'existe pas"
+    end
+
+    test "execute project_create and note_add" do
+      # Create project
+      result = Alfred.Chat.Tools.execute("project_create", %{"name" => "ToolTest"})
+      assert result =~ "créé"
+
+      # Add note
+      result = Alfred.Chat.Tools.execute("note_add", %{"project" => "ToolTest", "text" => "Note de test"})
+      assert result =~ "Note ajoutée"
+
+      # Add task
+      result = Alfred.Chat.Tools.execute("task_add", %{"project" => "ToolTest", "description" => "Tâche test"})
+      assert result =~ "Tâche #"
+
+      # List tasks
+      result = Alfred.Chat.Tools.execute("task_list", %{"project" => "ToolTest"})
+      assert result =~ "Tâche test"
+
+      # Cleanup
+      Alfred.Projects.Manager.delete("ToolTest")
+    end
+
+    test "execute remind_set" do
+      # Need a project first
+      Alfred.Chat.Tools.execute("project_create", %{"name" => "RemindTest"})
+
+      result = Alfred.Chat.Tools.execute("remind_set", %{
+        "project" => "RemindTest",
+        "text" => "Test rappel",
+        "delay" => "2h"
+      })
+      assert result =~ "Rappel"
+
+      Alfred.Projects.Manager.delete("RemindTest")
+    end
+
+    test "execute unknown tool" do
+      result = Alfred.Chat.Tools.execute("unknown", %{})
+      assert result =~ "inconnu"
+    end
+  end
+
   describe "Alfred.Chat.SystemPrompt" do
     test "build returns personality string" do
       prompt = Alfred.Chat.SystemPrompt.build()

@@ -99,15 +99,20 @@ defmodule Alfred.Chat.Commands do
 
   @doc """
   Envoie un message et retourne {réponse, nouvelle_session}.
-  Utilisé par le shell conversationnel.
+  Supporte le function calling : si Mistral demande un outil, on l'exécute
+  et on renvoie le résultat pour obtenir la réponse finale.
   """
   def send_message(session, token, input, soul, culture) do
     session = Session.add_message(session, "user", input)
-    messages = Session.to_api_messages(session)
+    tools = Alfred.Chat.Tools.definitions()
 
-    case Client.chat_completion(token, messages) do
-      {:ok, response} ->
+    case call_with_tools(session, token, tools) do
+      {:ok, response, actions} ->
         session = Session.add_message(session, "assistant", response)
+
+        if actions != [] do
+          IO.puts(format_actions(actions))
+        end
 
         session =
           if rem(Session.message_count(session), 6) == 0 do
@@ -122,6 +127,82 @@ defmodule Alfred.Chat.Commands do
         {:error, reason, session}
     end
   end
+
+  # Call Mistral with tools, handle tool_calls loop (max 3 rounds)
+  defp call_with_tools(session, token, tools, round \\ 0, acc_actions \\ []) do
+    messages = Session.to_api_messages(session)
+
+    case Client.chat_completion(token, messages, tools: tools) do
+      {:ok, text} ->
+        {:ok, text, acc_actions}
+
+      {:tool_calls, tool_calls, assistant_msg} when round < 3 ->
+        # Execute each tool and collect results
+        {results, actions} = execute_tool_calls(tool_calls)
+
+        # Build messages: assistant with tool_calls + tool results
+        assistant_api_msg = %{
+          "role" => "assistant",
+          "content" => assistant_msg["content"] || "",
+          "tool_calls" => tool_calls
+        }
+
+        tool_messages =
+          Enum.map(results, fn {call_id, result} ->
+            %{"role" => "tool", "content" => result, "tool_call_id" => call_id}
+          end)
+
+        # Add to session for context (raw messages appended)
+        session = append_raw_messages(session, [assistant_api_msg | tool_messages])
+
+        # Call again to get the final text response
+        call_with_tools(session, token, tools, round + 1, acc_actions ++ actions)
+
+      {:tool_calls, _tool_calls, _msg} ->
+        {:error, "Trop d'appels d'outils consécutifs."}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp execute_tool_calls(tool_calls) do
+    Enum.map(tool_calls, fn call ->
+      name = get_in(call, ["function", "name"])
+      args_json = get_in(call, ["function", "arguments"]) || "{}"
+      args = Jason.decode!(args_json)
+      call_id = call["id"]
+
+      result = Alfred.Chat.Tools.execute(name, args)
+      action = "#{tool_label(name)} : #{result}"
+
+      {{call_id, result}, action}
+    end)
+    |> Enum.unzip()
+  end
+
+  defp append_raw_messages(session, messages) do
+    raw = Enum.map(messages, fn msg ->
+      %{"role" => msg["role"], "content" => msg["content"] || "",
+        "tool_calls" => msg["tool_calls"], "tool_call_id" => msg["tool_call_id"]}
+    end)
+    %{session | messages: session.messages ++ raw}
+  end
+
+  defp format_actions(actions) do
+    actions
+    |> Enum.map(fn a -> "  #{Colors.green("⚡")} #{a}" end)
+    |> Enum.join("\n")
+  end
+
+  defp tool_label("note_add"), do: "Note ajoutée"
+  defp tool_label("task_add"), do: "Tâche créée"
+  defp tool_label("task_done"), do: "Tâche accomplie"
+  defp tool_label("remind_set"), do: "Rappel programmé"
+  defp tool_label("project_list"), do: "Projets"
+  defp tool_label("task_list"), do: "Tâches"
+  defp tool_label("project_create"), do: "Projet créé"
+  defp tool_label(name), do: name
 
   @doc """
   Construit une session de chat avec mémoire contextuelle.
