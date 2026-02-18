@@ -683,6 +683,63 @@ defmodule Alfred.BrainTest do
     end
   end
 
+  describe "CLI smart_startup and dashboard" do
+    test "smart_startup runs without crash" do
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          Alfred.CLI.main([])
+        end)
+
+      # Should contain greeting
+      assert output =~ "Alfred" || output =~ "Monsieur"
+    end
+
+    test "dashboard runs without crash" do
+      Alfred.Projects.Manager.create("DashTest")
+      Alfred.Projects.Task.add("DashTest", "A dashboard task")
+
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          Alfred.CLI.main(["dashboard"])
+        end)
+
+      assert output =~ "tableau de bord"
+      assert output =~ "État des affaires"
+      assert output =~ "Mémoire"
+      assert output =~ "Culture"
+    end
+
+    test "status enriched shows cross-organ data" do
+      Alfred.Projects.Manager.create("StatusTest")
+
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          Alfred.CLI.main(["status"])
+        end)
+
+      assert output =~ "StatusTest"
+    end
+  end
+
+  describe "SystemPrompt enriched" do
+    test "build with cortex_summary" do
+      prompt = Alfred.Chat.SystemPrompt.build(cortex_summary: "10 messages en moyenne")
+      assert prompt =~ "cortex"
+      assert prompt =~ "10 messages"
+    end
+
+    test "build with suggestion_count" do
+      prompt = Alfred.Chat.SystemPrompt.build(suggestion_count: 3)
+      assert prompt =~ "3 suggestion(s)"
+    end
+
+    test "build without enrichments stays clean" do
+      prompt = Alfred.Chat.SystemPrompt.build()
+      refute prompt =~ "cortex"
+      refute prompt =~ "suggestion(s)"
+    end
+  end
+
   describe "alfred_health brain check" do
     test "brain check returns julia status" do
       info = :alfred_health.check_brain()

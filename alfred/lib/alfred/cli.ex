@@ -12,15 +12,9 @@ defmodule Alfred.CLI do
     Alfred.Storage.Local.ensure_data_dir!()
     {:ok, _} = Alfred.Application.start()
 
-    # Check for migration at startup
-    if args == [] do
-      Alfred.Vault.Migration.check_and_suggest()
-    end
-
     case args do
       [] ->
-        Butler.greet()
-        Alfred.Remind.Commands.check_and_notify()
+        smart_startup()
 
       ["project", "new" | rest] ->
         name = Enum.join(rest, " ")
@@ -136,6 +130,9 @@ defmodule Alfred.CLI do
 
       ["soul" | soul_args] ->
         Alfred.Soul.Commands.handle(soul_args)
+
+      ["dashboard"] ->
+        dashboard()
 
       ["health"] ->
         health()
@@ -435,6 +432,79 @@ defmodule Alfred.CLI do
     end
   end
 
+  # -- Smart Startup --
+
+  defp smart_startup do
+    Alfred.Vault.Migration.check_and_suggest()
+    Butler.greet()
+    Alfred.Remind.Commands.check_and_notify()
+
+    # Quick summary — pure Elixir, no external calls
+    projects = Projects.list()
+    all_tasks = Tasks.list_all()
+    pending_tasks = Enum.count(all_tasks, &(&1.status == "pending"))
+    {:ok, reminder_count} = :alfred_scheduler.count_pending()
+
+    culture_suggestions = Alfred.Culture.Suggestions.count_pending()
+
+    if length(projects) > 0 or reminder_count > 0 or culture_suggestions > 0 do
+      IO.puts("")
+      IO.puts("  ── Aperçu rapide ──")
+      IO.puts("  #{length(projects)} projet(s), #{pending_tasks} tâche(s) en attente, #{reminder_count} rappel(s)")
+
+      if culture_suggestions > 0 do
+        IO.puts("  📚 #{culture_suggestions} suggestion(s) de culture à examiner")
+      end
+
+      maybe_show_cortex_oneliner(projects)
+      IO.puts("")
+    end
+  end
+
+  defp maybe_show_cortex_oneliner(projects) do
+    cortex_info = :alfred_health.check_cortex()
+
+    if cortex_info.r_found and cortex_info.script_found and projects != [] do
+      projects_data = Enum.map(projects, &build_startup_project_data/1)
+
+      case Alfred.Cortex.Port.send_command(%{cmd: "productivity_stats", projects: projects_data}) do
+        {:ok, %{"stats" => %{"one_liner" => line}}} when is_binary(line) and line != "" ->
+          IO.puts("  📊 #{line}")
+
+        _ ->
+          :ok
+      end
+    end
+  rescue
+    _ -> :ok
+  end
+
+  defp build_startup_project_data(project) do
+    tasks = Tasks.list_for_project(project.name)
+
+    reminders =
+      case :alfred_scheduler.list_reminders() do
+        {:ok, rs} ->
+          rs
+          |> Enum.filter(&(&1.project == project.name))
+          |> Enum.map(fn r ->
+            %{"status" => Atom.to_string(r.status), "due_at" => r.due_at, "text" => r.text}
+          end)
+
+        _ ->
+          []
+      end
+
+    %{
+      "name" => project.name,
+      "tasks" =>
+        Enum.map(tasks, fn t ->
+          %{"status" => t.status, "priority" => t.priority, "description" => t.description}
+        end),
+      "reminders" => reminders
+    }
+  end
+
   # -- Status --
 
   defp status do
@@ -465,7 +535,148 @@ defmodule Alfred.CLI do
         status_icon = if p_pending == 0 and p_done > 0, do: "✓", else: "▸"
         IO.puts("  #{status_icon} #{project.name}  —  #{p_pending} en attente, #{p_done} accomplies, #{p_notes} notes")
       end)
+
+      # Cross-organ enrichments
+      IO.puts("")
+
+      culture_suggestions = Alfred.Culture.Suggestions.count_pending()
+
+      if culture_suggestions > 0 do
+        IO.puts("  Suggestions culture : #{culture_suggestions} en attente")
+      end
+
+      pattern_count = Alfred.Memory.Procedural.count_active()
+
+      if pattern_count > 0 do
+        IO.puts("  Patterns détectés   : #{pattern_count} actif(s)")
+      end
+
+      maybe_show_cortex_oneliner(projects)
+      IO.puts("")
     end
+  end
+
+  # -- Dashboard --
+
+  defp dashboard do
+    Butler.say("Monsieur, voici votre tableau de bord complet :\n")
+
+    # Section 1: État des affaires
+    projects = Projects.list()
+    all_tasks = Tasks.list_all()
+    pending = Enum.count(all_tasks, &(&1.status == "pending"))
+    done = Enum.count(all_tasks, &(&1.status == "done"))
+    {:ok, reminder_count} = :alfred_scheduler.count_pending()
+
+    IO.puts("  ── État des affaires ──")
+    IO.puts("  #{length(projects)} projet(s), #{pending} tâche(s) en attente, #{done} accomplies")
+    IO.puts("  #{reminder_count} rappel(s)")
+    IO.puts("")
+
+    # Section 2: Projets
+    if projects != [] do
+      IO.puts("  ── Projets ──")
+
+      Enum.each(projects, fn project ->
+        p_tasks = Tasks.list_for_project(project.name)
+        p_pending = Enum.count(p_tasks, &(&1.status == "pending"))
+        p_done = Enum.count(p_tasks, &(&1.status == "done"))
+        icon = if p_pending == 0 and p_done > 0, do: "✓", else: "▸"
+        IO.puts("  #{icon} #{project.name}  — #{p_pending} en attente, #{p_done} accomplies")
+      end)
+
+      IO.puts("")
+    end
+
+    # Section 3: Mémoire
+    fact_count = Alfred.Memory.Semantic.count()
+    episode_count = Alfred.Memory.Episodic.count()
+    pattern_count = Alfred.Memory.Procedural.count_active()
+
+    IO.puts("  ── Mémoire ──")
+    IO.puts("  #{fact_count} fait(s), #{episode_count} épisode(s), #{pattern_count} pattern(s) actif(s)")
+    IO.puts("")
+
+    # Section 4: Culture
+    culture_suggestions = Alfred.Culture.Suggestions.count_pending()
+    IO.puts("  ── Culture ──")
+    IO.puts("  #{culture_suggestions} suggestion(s) en attente d'approbation")
+    IO.puts("")
+
+    # Section 5: Cortex (R) — optionnel
+    cortex_info = :alfred_health.check_cortex()
+
+    if cortex_info.r_found and cortex_info.script_found and projects != [] do
+      dashboard_cortex(projects)
+    end
+
+    # Section 6: Cerveau (Julia) — optionnel
+    brain_info = :alfred_health.check_brain()
+
+    if brain_info.julia_found and brain_info.script_found and projects != [] do
+      dashboard_brain(projects)
+    end
+  end
+
+  defp dashboard_cortex(projects) do
+    projects_data = Enum.map(projects, &build_startup_project_data/1)
+
+    case Alfred.Cortex.Port.send_command(%{cmd: "productivity_stats", projects: projects_data}) do
+      {:ok, %{"stats" => stats}} ->
+        IO.puts("  ── Tendances (Cortex/R) ──")
+
+        if line = stats["one_liner"] do
+          IO.puts("  #{line}")
+        end
+
+        if rate = stats["overall_completion"] do
+          IO.puts("  Accomplissement global : #{rate}%")
+        end
+
+        IO.puts("")
+
+      _ ->
+        :ok
+    end
+  rescue
+    _ -> :ok
+  end
+
+  defp dashboard_brain(projects) do
+    projects_data =
+      Enum.map(projects, fn p ->
+        tasks = Tasks.list_for_project(p.name)
+
+        %{
+          "name" => p.name,
+          "tasks" =>
+            Enum.map(tasks, fn t ->
+              %{"status" => t.status, "priority" => t.priority, "description" => t.description}
+            end),
+          "notes" => [],
+          "reminders" => []
+        }
+      end)
+
+    case Alfred.Brain.Port.send_command(%{
+           cmd: "suggest",
+           projects: projects_data,
+           now: System.system_time(:second)
+         }) do
+      {:ok, %{"suggestions" => suggestions}} when suggestions != [] ->
+        IO.puts("  ── Suggestions (Cerveau/Julia) ──")
+
+        suggestions
+        |> Enum.take(3)
+        |> Enum.each(fn s -> IO.puts("  #{s}") end)
+
+        IO.puts("")
+
+      _ ->
+        :ok
+    end
+  rescue
+    _ -> :ok
   end
 
   # -- Health --
@@ -568,6 +779,7 @@ defmodule Alfred.CLI do
       alfred note add <projet> <texte>           Ajouter une note
       alfred note list [projet]                  Lister les notes
       alfred status                              Vue d'ensemble
+      alfred dashboard                            Tableau de bord complet
 
       alfred vault setup                         Créer les 3 coffres-forts
       alfred vault status                        État des coffres-forts

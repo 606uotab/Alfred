@@ -273,20 +273,42 @@ defmodule Alfred.Chat.Commands do
   defp refresh_context(session, latest_query, soul, culture) do
     relevant_facts = Semantic.search(latest_query, limit: 5)
 
-    if relevant_facts != [] do
-      system_prompt =
-        SystemPrompt.build(
-          facts: relevant_facts,
-          summaries: Episodic.recent_summaries(2),
-          patterns: Procedural.active_patterns(),
-          soul: soul,
-          culture: culture
-        )
+    # Enrichments
+    cortex_summary = get_cortex_summary_for_chat()
+    suggestion_count = Alfred.Culture.Suggestions.count_pending()
 
-      %{session | system_prompt: system_prompt}
+    system_prompt =
+      SystemPrompt.build(
+        facts: if(relevant_facts != [], do: relevant_facts, else: Semantic.top_facts(5)),
+        summaries: Episodic.recent_summaries(2),
+        patterns: Procedural.active_patterns(),
+        soul: soul,
+        culture: culture,
+        cortex_summary: cortex_summary,
+        suggestion_count: suggestion_count
+      )
+
+    %{session | system_prompt: system_prompt}
+  end
+
+  defp get_cortex_summary_for_chat do
+    cortex_info = :alfred_health.check_cortex()
+
+    if cortex_info.r_found and cortex_info.script_found do
+      episodes = Episodic.list_episodes()
+
+      case Alfred.Cortex.Port.send_command(%{cmd: "interaction_trends", episodes: episodes}) do
+        {:ok, %{"trends" => %{"avg_messages_per_session" => avg}}} when avg > 0 ->
+          "Sessions de #{avg} messages en moyenne"
+
+        _ ->
+          nil
+      end
     else
-      session
+      nil
     end
+  rescue
+    _ -> nil
   end
 
   defp save_conversation(session, token) do

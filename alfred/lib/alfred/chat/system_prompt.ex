@@ -102,6 +102,21 @@ defmodule Alfred.Chat.SystemPrompt do
         parts
       end
 
+    parts =
+      case Keyword.get(opts, :cortex_summary) do
+        nil -> parts
+        summary when is_binary(summary) ->
+          parts ++ ["\nTendance du cortex : #{summary}"]
+        _ -> parts
+      end
+
+    parts =
+      case Keyword.get(opts, :suggestion_count) do
+        count when is_integer(count) and count > 0 ->
+          parts ++ ["\n#{count} suggestion(s) de culture en attente d'approbation par Monsieur."]
+        _ -> parts
+      end
+
     Enum.join(parts, "\n")
   end
 
