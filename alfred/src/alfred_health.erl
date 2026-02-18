@@ -37,9 +37,7 @@ check_beam() ->
 
 %% @doc Check if the Zig vault binary and vault files are available.
 check_vault() ->
-    Paths = [
-        "native/vault/zig-out/bin/alfred-vault"
-    ],
+    Paths = native_paths("native/vault/zig-out/bin/alfred-vault"),
     Found = lists:any(fun(P) -> filelib:is_file(P) end, Paths),
     case Found of
         true ->
@@ -121,8 +119,8 @@ check_brain() ->
         "/usr/bin/julia"
     ],
     JuliaFound = lists:any(fun(P) -> filelib:is_file(P) end, JuliaPaths),
-    ScriptPath = "native/brain/src/main.jl",
-    ScriptFound = filelib:is_file(ScriptPath),
+    ScriptPaths = native_paths("native/brain/src/main.jl"),
+    ScriptFound = lists:any(fun(P) -> filelib:is_file(P) end, ScriptPaths),
     case {JuliaFound, ScriptFound} of
         {true, true} ->
             #{status => ok, julia_found => true, script_found => true};
@@ -136,8 +134,8 @@ check_brain() ->
 check_cortex() ->
     RscriptPaths = ["/usr/bin/Rscript", "/usr/local/bin/Rscript"],
     RFound = lists:any(fun(P) -> filelib:is_file(P) end, RscriptPaths),
-    ScriptPath = "native/cortex/src/main.R",
-    ScriptFound = filelib:is_file(ScriptPath),
+    ScriptPaths = native_paths("native/cortex/src/main.R"),
+    ScriptFound = lists:any(fun(P) -> filelib:is_file(P) end, ScriptPaths),
     case {RFound, ScriptFound} of
         {true, true} ->
             #{status => ok, r_found => true, script_found => true};
@@ -149,8 +147,8 @@ check_cortex() ->
 
 %% @doc Check if the Ada arms binary is available.
 check_arms() ->
-    BinaryPath = "native/arms/bin/alfred-arms",
-    case filelib:is_file(BinaryPath) of
+    Paths = native_paths("native/arms/bin/alfred-arms"),
+    case lists:any(fun(P) -> filelib:is_file(P) end, Paths) of
         true ->
             #{status => ok, binary_found => true};
         false ->
@@ -188,3 +186,14 @@ vault_dir_path() ->
 legacy_vault_path() ->
     Home = os:getenv("HOME"),
     filename:join([Home, ".alfred", "vault.enc"]).
+
+%% @doc Candidate paths for a native binary/script (cwd, alfred/ subdir).
+native_paths(Relative) ->
+    Cwd = file:get_cwd(),
+    CwdStr = case Cwd of {ok, D} -> D; _ -> "." end,
+    [
+        Relative,
+        filename:join("alfred", Relative),
+        filename:join(CwdStr, Relative),
+        filename:join(CwdStr, filename:join("alfred", Relative))
+    ].

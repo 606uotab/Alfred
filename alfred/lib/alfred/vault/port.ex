@@ -81,8 +81,8 @@ defmodule Alfred.Vault.Port do
   def send_commands(commands) when is_list(commands) and length(commands) > 0 do
     binary = vault_binary_path()
 
-    unless File.exists?(binary) do
-      {:error, "Vault binary not found. Run: cd native/vault && zig build"}
+    if binary == nil or not File.exists?(binary) do
+      {:error, "Le coffre-fort n'est pas disponible. Recompilez avec : make vault"}
     else
       port =
         Port.open({:spawn_executable, binary}, [
@@ -145,16 +145,18 @@ defmodule Alfred.Vault.Port do
   end
 
   defp vault_binary_path do
-    project_path = Path.expand("native/vault/zig-out/bin/alfred-vault", project_root())
+    relative = "native/vault/zig-out/bin/alfred-vault"
 
-    if File.exists?(project_path) do
-      project_path
-    else
-      Path.expand("native/vault/zig-out/bin/alfred-vault", File.cwd!())
-    end
+    candidates = [
+      Path.expand(relative, project_root()),
+      Path.expand(relative, File.cwd!()),
+      Path.expand("alfred/" <> relative, File.cwd!())
+    ]
+
+    Enum.find(candidates, &File.exists?/1)
   end
 
   defp project_root do
-    Path.expand("../..", __DIR__)
+    Path.expand("../../..", __DIR__)
   end
 end

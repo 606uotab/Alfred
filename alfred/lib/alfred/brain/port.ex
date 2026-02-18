@@ -75,16 +75,18 @@ defmodule Alfred.Brain.Port do
   end
 
   defp brain_script_path do
-    project_path = Path.expand("native/brain/src/main.jl", project_root())
+    relative = "native/brain/src/main.jl"
 
-    if File.exists?(project_path) do
-      project_path
-    else
-      Path.expand("native/brain/src/main.jl", File.cwd!())
-    end
+    candidates = [
+      Path.expand(relative, project_root()),
+      Path.expand(relative, File.cwd!()),
+      Path.expand("alfred/" <> relative, File.cwd!())
+    ]
+
+    Enum.find(candidates, &File.exists?/1)
   end
 
   defp project_root do
-    Path.expand("../..", __DIR__)
+    Path.expand("../../..", __DIR__)
   end
 end

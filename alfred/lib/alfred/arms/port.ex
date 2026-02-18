@@ -62,22 +62,18 @@ defmodule Alfred.Arms.Port do
   end
 
   defp arms_binary_path do
-    project_path = Path.expand("native/arms/bin/alfred-arms", project_root())
+    relative = "native/arms/bin/alfred-arms"
 
-    if File.exists?(project_path) do
-      project_path
-    else
-      cwd_path = Path.expand("native/arms/bin/alfred-arms", File.cwd!())
+    candidates = [
+      Path.expand(relative, project_root()),
+      Path.expand(relative, File.cwd!()),
+      Path.expand("alfred/" <> relative, File.cwd!())
+    ]
 
-      if File.exists?(cwd_path) do
-        cwd_path
-      else
-        nil
-      end
-    end
+    Enum.find(candidates, &File.exists?/1)
   end
 
   defp project_root do
-    Path.expand("../..", __DIR__)
+    Path.expand("../../..", __DIR__)
   end
 end

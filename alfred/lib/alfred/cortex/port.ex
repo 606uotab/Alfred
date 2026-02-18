@@ -69,16 +69,18 @@ defmodule Alfred.Cortex.Port do
   end
 
   defp cortex_script_path do
-    project_path = Path.expand("native/cortex/src/main.R", project_root())
+    relative = "native/cortex/src/main.R"
 
-    if File.exists?(project_path) do
-      project_path
-    else
-      Path.expand("native/cortex/src/main.R", File.cwd!())
-    end
+    candidates = [
+      Path.expand(relative, project_root()),
+      Path.expand(relative, File.cwd!()),
+      Path.expand("alfred/" <> relative, File.cwd!())
+    ]
+
+    Enum.find(candidates, &File.exists?/1)
   end
 
   defp project_root do
-    Path.expand("../..", __DIR__)
+    Path.expand("../../..", __DIR__)
   end
 end
