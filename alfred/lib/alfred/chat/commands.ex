@@ -1,24 +1,24 @@
 defmodule Alfred.Chat.Commands do
   @moduledoc """
-  Commandes de conversation — Alfred converse avec son maître ou ses utilisateurs.
-  Authentification multi-rôle : Maître, Admin, User.
+  Commandes de conversation — Alfred converse avec son maître.
   """
 
   alias Alfred.Butler
+  alias Alfred.Colors
   alias Alfred.Chat.{Client, Session, SystemPrompt}
   alias Alfred.Memory.{Episodic, Learner, Semantic, Procedural}
   alias Alfred.Vault.Port
 
   @doc """
-  Mode chat interactif — demande le rôle puis lance la boucle de conversation.
+  Mode chat interactif — authentification directe, puis conversation.
   """
   def handle_chat do
-    case authenticate_interactive() do
-      {:ok, role, token, soul, culture} ->
+    case authenticate() do
+      {:ok, token, soul, culture} ->
         session = build_session("chat", soul, culture)
-        role_label = role_label(role)
 
-        Butler.say("Bienvenue, #{role_label}. Je suis prêt à converser. Tapez 'quit' pour terminer.\n")
+        Butler.say("Je suis prêt à converser, Monsieur.")
+        IO.puts("  #{Colors.dim("Tapez 'quit' pour terminer.")}\n")
         chat_loop(session, token, soul, culture)
 
       {:error, reason} ->
@@ -30,7 +30,7 @@ defmodule Alfred.Chat.Commands do
   Mode question ponctuelle — une question, une réponse.
   """
   def handle_ask(question) do
-    case retrieve_credentials() do
+    case authenticate() do
       {:ok, token, soul, culture} ->
         session = build_session("ask", soul, culture)
         session = Session.add_message(session, "user", question)
@@ -51,209 +51,82 @@ defmodule Alfred.Chat.Commands do
     end
   end
 
-  # -- Interactive authentication --
-
-  defp authenticate_interactive do
-    Butler.say("Qui ai-je le plaisir de servir ?\n")
-    IO.puts("  1. Maître (accès complet)")
-    IO.puts("  2. Admin (users + culture)")
-    IO.puts("  3. Utilisateur\n")
-
-    choice = IO.gets("  Choix (1-3) : ") |> String.trim()
-
-    case choice do
-      "1" -> authenticate_master()
-      "2" -> authenticate_admin()
-      "3" -> authenticate_user()
-      _ -> {:error, "Choix invalide, Monsieur."}
-    end
-  end
-
-  defp authenticate_master do
-    password = Alfred.Input.prompt_password("Mot de passe maître : ")
-
-    if password == "" do
-      {:error, "Mot de passe requis, Monsieur."}
-    else
-      case Port.send_commands([%{cmd: "unlock_all", password: password}]) do
-        {:ok, _} ->
-          # Retrieve API key from creator vault
-          token = fetch_from_vault("creator", password, "mistral_api_key")
-          soul = fetch_from_vault("creator", password, "alfred_soul")
-          culture = fetch_culture(password)
-
-          case token do
-            nil ->
-              # Fallback to env
-              case System.get_env("MISTRAL_API_KEY") do
-                nil ->
-                  {:error,
-                   "Monsieur, la clé 'mistral_api_key' est introuvable.\nStockez-la : alfred vault store creator mistral_api_key"}
-
-                env_token ->
-                  {:ok, :master, env_token, soul, culture}
-              end
-
-            t ->
-              {:ok, :master, t, soul, culture}
-          end
-
-        {:error, "Wrong password"} ->
-          {:error, "Mot de passe incorrect, Monsieur."}
-
-        {:error, reason} ->
-          {:error, "Impossible d'ouvrir les coffres : #{reason}"}
-      end
-    end
-  end
-
-  defp authenticate_admin do
-    password = Alfred.Input.prompt_password("Mot de passe admin : ")
-
-    if password == "" do
-      {:error, "Mot de passe requis."}
-    else
-      case Port.send_commands([
-             %{cmd: "unlock", vault: "users", password: password},
-             %{cmd: "unlock", vault: "culture", password: password}
-           ]) do
-        {:ok, _} ->
-          # API key: try users vault, then env
-          token = fetch_from_vault("users", password, "mistral_api_key")
-          culture = fetch_culture(password)
-
-          token = token || System.get_env("MISTRAL_API_KEY")
-
-          if token do
-            {:ok, :admin, token, nil, culture}
-          else
-            {:error,
-             "Clé API introuvable. Configurez MISTRAL_API_KEY ou stockez-la dans users vault."}
-          end
-
-        {:error, "Wrong password"} ->
-          {:error, "Mot de passe incorrect."}
-
-        {:error, reason} ->
-          {:error, "Impossible d'ouvrir les coffres : #{reason}"}
-      end
-    end
-  end
-
-  defp authenticate_user do
-    name = IO.gets("  Votre nom : ") |> String.trim()
-
-    if name == "" do
-      {:error, "Nom requis."}
-    else
-      token = System.get_env("MISTRAL_API_KEY")
-
-      if token do
-        Butler.say("Enchanté, #{name}.")
-        {:ok, :user, token, nil, []}
-      else
-        {:error, "#{name}, la conversation nécessite une clé API. Contactez votre administrateur."}
-      end
-    end
-  end
-
-  # -- Credentials retrieval (for ask mode, backward-compatible) --
-
-  defp retrieve_credentials do
+  @doc """
+  Authentifie et retourne les credentials. Utilisé par chat et shell.
+  """
+  def authenticate do
+    # Try env first (no password needed)
     case System.get_env("MISTRAL_API_KEY") do
-      nil ->
-        retrieve_from_vault()
-
-      token when byte_size(token) > 0 ->
+      token when is_binary(token) and byte_size(token) > 0 ->
         {:ok, token, nil, []}
 
       _ ->
-        retrieve_from_vault()
+        authenticate_with_vault()
     end
   end
 
-  defp retrieve_from_vault do
-    password = Alfred.Input.prompt_password("Mot de passe du coffre-fort : ")
+  @doc """
+  Authentifie avec un mot de passe donné (pour le shell).
+  """
+  def authenticate_with_password(password) do
+    case Port.send_commands([%{cmd: "unlock_all", password: password}]) do
+      {:ok, _} ->
+        token = fetch_from_vault("creator", password, "mistral_api_key")
+        soul = fetch_from_vault("creator", password, "alfred_soul")
+        culture = fetch_culture(password)
 
-    if password == "" do
-      {:error,
-       "Monsieur, je ne peux converser sans accès au coffre-fort contenant ma clé Mistral.\nAstuce : export MISTRAL_API_KEY=votre_clé pour éviter le coffre-fort."}
-    else
-      # Try master unlock
-      case Port.send_commands([%{cmd: "unlock_all", password: password}]) do
-        {:ok, _} ->
-          token = fetch_from_vault("creator", password, "mistral_api_key")
-          soul = fetch_from_vault("creator", password, "alfred_soul")
-          culture = fetch_culture(password)
+        case token do
+          nil ->
+            case System.get_env("MISTRAL_API_KEY") do
+              nil ->
+                {:error, "Clé 'mistral_api_key' introuvable dans le coffre."}
 
-          if token do
-            {:ok, token, soul, culture}
-          else
-            {:error,
-             "Monsieur, la clé 'mistral_api_key' est introuvable.\nUtilisez : alfred vault store creator mistral_api_key"}
-          end
+              env_token ->
+                {:ok, env_token, soul, culture}
+            end
 
-        {:error, "Wrong password"} ->
-          {:error, "Mot de passe incorrect, Monsieur."}
-
-        {:error, reason} ->
-          {:error, "Impossible d'ouvrir le coffre-fort : #{reason}"}
-      end
-    end
-  end
-
-  # -- Chat loop --
-
-  defp chat_loop(session, token, soul, culture) do
-    case IO.gets("  Vous : ") do
-      :eof ->
-        end_chat(session, token)
-
-      input ->
-        input = String.trim(input)
-
-        if input in ["quit", "exit", "q", "au revoir", ""] do
-          end_chat(session, token)
-        else
-          session = Session.add_message(session, "user", input)
-          messages = Session.to_api_messages(session)
-
-          case Client.chat_completion(token, messages) do
-            {:ok, response} ->
-              IO.puts("")
-              Butler.say(response)
-              IO.puts("")
-              session = Session.add_message(session, "assistant", response)
-
-              session =
-                if rem(Session.message_count(session), 6) == 0 do
-                  refresh_context(session, input, soul, culture)
-                else
-                  session
-                end
-
-              chat_loop(session, token, soul, culture)
-
-            {:error, reason} ->
-              Butler.say("Erreur : #{reason}")
-              chat_loop(session, token, soul, culture)
-          end
+          t ->
+            {:ok, t, soul, culture}
         end
+
+      {:error, "Wrong password"} ->
+        {:error, "Mot de passe incorrect, Monsieur."}
+
+      {:error, reason} ->
+        {:error, "Impossible d'ouvrir les coffres : #{reason}"}
     end
   end
 
-  defp end_chat(session, token) do
-    if Session.message_count(session) > 0 do
-      Butler.say("Très bien. Ce fut un plaisir de converser avec vous.")
-      save_conversation(session, token)
-    else
-      Butler.say("Au revoir.")
+  @doc """
+  Envoie un message et retourne {réponse, nouvelle_session}.
+  Utilisé par le shell conversationnel.
+  """
+  def send_message(session, token, input, soul, culture) do
+    session = Session.add_message(session, "user", input)
+    messages = Session.to_api_messages(session)
+
+    case Client.chat_completion(token, messages) do
+      {:ok, response} ->
+        session = Session.add_message(session, "assistant", response)
+
+        session =
+          if rem(Session.message_count(session), 6) == 0 do
+            refresh_context(session, input, soul, culture)
+          else
+            session
+          end
+
+        {:ok, response, session}
+
+      {:error, reason} ->
+        {:error, reason, session}
     end
   end
 
-  # -- Session building with memory + culture --
-
-  defp build_session(mode, soul, culture) do
+  @doc """
+  Construit une session de chat avec mémoire contextuelle.
+  """
+  def build_session(mode, soul, culture) do
     facts = Semantic.top_facts(10)
     summaries = Episodic.recent_summaries(3)
     patterns = Procedural.active_patterns()
@@ -269,6 +142,59 @@ defmodule Alfred.Chat.Commands do
 
     Session.new(system_prompt, mode: mode)
   end
+
+  # -- Vault authentication --
+
+  defp authenticate_with_vault do
+    password = Alfred.Input.prompt_password("  Mot de passe : ")
+
+    if password == "" do
+      {:error,
+       "Monsieur, je ne peux converser sans accès au coffre-fort.\nAstuce : export MISTRAL_API_KEY=votre_clé"}
+    else
+      authenticate_with_password(password)
+    end
+  end
+
+  # -- Chat loop --
+
+  defp chat_loop(session, token, soul, culture) do
+    case IO.gets("  #{Colors.cyan("Vous")} : ") do
+      :eof ->
+        end_chat(session, token)
+
+      input ->
+        input = String.trim(input)
+
+        if input in ["quit", "exit", "q", "au revoir", ""] do
+          end_chat(session, token)
+        else
+          case send_message(session, token, input, soul, culture) do
+            {:ok, response, session} ->
+              IO.puts("")
+              IO.puts("  🎩 #{Colors.bold("Alfred")} : #{response}")
+              IO.puts("")
+              chat_loop(session, token, soul, culture)
+
+            {:error, reason, session} ->
+              IO.puts("  #{Colors.red("!")} #{reason}")
+              IO.puts("")
+              chat_loop(session, token, soul, culture)
+          end
+        end
+    end
+  end
+
+  defp end_chat(session, token) do
+    if Session.message_count(session) > 0 do
+      Butler.say("Très bien. Ce fut un plaisir de converser avec vous.")
+      save_conversation(session, token)
+    else
+      Butler.say("Au revoir.")
+    end
+  end
+
+  # -- Context refresh --
 
   defp refresh_context(session, latest_query, soul, culture) do
     relevant_facts = Semantic.search(latest_query, limit: 5)
@@ -311,7 +237,10 @@ defmodule Alfred.Chat.Commands do
     _ -> nil
   end
 
-  defp save_conversation(session, token) do
+  @doc """
+  Sauvegarde la conversation dans la mémoire épisodique.
+  """
+  def save_conversation(session, token) do
     Learner.learn(session, token)
   end
 
@@ -333,7 +262,4 @@ defmodule Alfred.Chat.Commands do
     _ -> []
   end
 
-  defp role_label(:master), do: "Monsieur"
-  defp role_label(:admin), do: "Administrateur"
-  defp role_label(:user), do: "cher utilisateur"
 end

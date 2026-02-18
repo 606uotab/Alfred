@@ -118,8 +118,12 @@ alfred arms memory                    # RAM / swap
 alfred arms backup                    # Sauvegarde
 
 # Conversation (Mistral AI)
-alfred chat                           # Mode interactif
+alfred chat                           # Mode conversation
 alfred ask "Quelle est la capitale du Japon ?"
+
+# Shell interactif
+alfred shell                          # Commandes + conversation
+                                      # Tapez des commandes ou parlez directement
 
 # Tableaux de bord
 alfred dashboard                      # Vue unifiée complète
@@ -163,7 +167,7 @@ Alfred/
 │   │   ├── brain/src/main.jl         # Analyse Julia
 │   │   ├── cortex/src/main.R         # Statistiques R
 │   │   └── arms/src/alfred_arms.adb  # Système Ada
-│   └── test/                         # 163 tests
+│   └── test/                         # 179 tests
 └── ~/.alfred/                        # Données utilisateur
     ├── data/                         # Projets, tâches, mémoire
     ├── vaults/                       # Coffres chiffrés (3)
@@ -197,7 +201,7 @@ Après chaque conversation, le pipeline d'apprentissage :
 ## Tests
 
 ```bash
-make test    # 163 tests
+make test    # 179 tests
 ```
 
 ## Licence
