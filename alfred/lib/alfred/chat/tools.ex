@@ -6,8 +6,16 @@ defmodule Alfred.Chat.Tools do
 
   alias Alfred.Projects.{Manager, Task, Note}
 
+  # Commands safe to run via capture (no interactive input needed)
+  @safe_commands ~w(
+    project task note status dashboard health remind
+    culture search briefing suggest summarize prioritize
+    think cortex arms memory
+  )
+
   def definitions do
     [
+      # -- Actions précises --
       tool("note_add",
         "Ajouter une note à un projet",
         %{
@@ -40,24 +48,32 @@ defmodule Alfred.Chat.Tools do
         },
         ["project", "text", "delay"]
       ),
-      tool("project_list",
-        "Lister tous les projets existants",
-        %{},
-        []
-      ),
-      tool("task_list",
-        "Lister les tâches (toutes ou par projet)",
-        %{
-          project: %{type: "string", description: "Nom du projet (optionnel)"}
-        },
-        []
-      ),
       tool("project_create",
         "Créer un nouveau projet",
         %{
           name: %{type: "string", description: "Nom du projet"}
         },
         ["name"]
+      ),
+
+      # -- Outil générique pour toute commande Alfred --
+      tool("alfred_command",
+        "Exécuter une commande Alfred et retourner le résultat. " <>
+        "Commandes disponibles : project list, task list [projet], note list [projet], " <>
+        "status, dashboard, health, remind list, " <>
+        "culture list, culture search <mots>, " <>
+        "memory facts, memory search <mots>, memory episodes, " <>
+        "search <mots>, briefing, suggest, summarize <projet>, prioritize <projet>, " <>
+        "think about <projet>, think culture, " <>
+        "cortex trends/stats/analyze/productivity/culture/correlations, " <>
+        "arms status/disk/memory/backup",
+        %{
+          command: %{
+            type: "string",
+            description: "Commande Alfred sans le préfixe 'alfred' (ex: 'task list', 'status', 'health', 'culture search orchidées')"
+          }
+        },
+        ["command"]
       )
     ]
   end
@@ -122,47 +138,6 @@ defmodule Alfred.Chat.Tools do
     e -> "Erreur : #{Exception.message(e)}"
   end
 
-  def execute("project_list", _args) do
-    projects = Manager.list()
-
-    if Enum.empty?(projects) do
-      "Aucun projet en cours."
-    else
-      projects
-      |> Enum.map(fn p ->
-        tasks = Task.count_pending_for_project(p.name)
-        "- #{p.name} (#{tasks} tâches en attente)"
-      end)
-      |> Enum.join("\n")
-    end
-  rescue
-    e -> "Erreur : #{Exception.message(e)}"
-  end
-
-  def execute("task_list", args) do
-    project = args["project"]
-
-    tasks =
-      if project && project != "" && Manager.exists?(project) do
-        Task.list_for_project(project)
-      else
-        Task.list_all()
-      end
-
-    if Enum.empty?(tasks) do
-      "Aucune tâche."
-    else
-      tasks
-      |> Enum.map(fn t ->
-        status = if t.status == "done", do: "accomplie", else: "en attente"
-        "##{t.id} [#{status}] #{t.description} (#{t.project})"
-      end)
-      |> Enum.join("\n")
-    end
-  rescue
-    e -> "Erreur : #{Exception.message(e)}"
-  end
-
   def execute("project_create", args) do
     name = args["name"]
 
@@ -174,7 +149,53 @@ defmodule Alfred.Chat.Tools do
     e -> "Erreur : #{Exception.message(e)}"
   end
 
+  def execute("alfred_command", args) do
+    command = args["command"] || ""
+    cli_args = String.split(command)
+
+    first = List.first(cli_args) || ""
+
+    if first in @safe_commands do
+      run_cli_command(cli_args)
+    else
+      "Commande non disponible en conversation : #{command}. " <>
+        "Commandes accessibles : status, task list, note list, health, remind list, culture list, search, etc."
+    end
+  rescue
+    e -> "Erreur : #{Exception.message(e)}"
+  end
+
   def execute(name, _args), do: "Outil inconnu : #{name}"
+
+  # -- Generic CLI execution --
+
+  defp run_cli_command(args) do
+    {:ok, string_io} = StringIO.open("")
+
+    original_gl = Process.group_leader()
+    Process.group_leader(self(), string_io)
+
+    try do
+      Alfred.CLI.main(args)
+    rescue
+      _ -> :ok
+    after
+      Process.group_leader(self(), original_gl)
+    end
+
+    {_input, output} = StringIO.contents(string_io)
+    StringIO.close(string_io)
+
+    output
+    |> strip_ansi()
+    |> String.trim()
+    |> case do
+      "" -> "Commande exécutée (pas de sortie)."
+      text -> text
+    end
+  rescue
+    _ -> "Erreur lors de l'exécution de la commande."
+  end
 
   # -- Helpers --
 
@@ -212,5 +233,9 @@ defmodule Alfred.Chat.Tools do
       _ ->
         0
     end
+  end
+
+  defp strip_ansi(text) do
+    Regex.replace(~r/\e\[[0-9;]*m/, text, "")
   end
 end

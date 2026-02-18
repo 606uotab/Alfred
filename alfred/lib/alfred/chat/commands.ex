@@ -202,6 +202,7 @@ defmodule Alfred.Chat.Commands do
   defp tool_label("project_list"), do: "Projets"
   defp tool_label("task_list"), do: "Tâches"
   defp tool_label("project_create"), do: "Projet créé"
+  defp tool_label("alfred_command"), do: "Commande"
   defp tool_label(name), do: name
 
   @doc """

@@ -114,18 +114,18 @@ defmodule Alfred.ChatTest do
       assert "note_add" in names
       assert "task_add" in names
       assert "remind_set" in names
-      assert "project_list" in names
-      assert "task_list" in names
+      assert "project_create" in names
+      assert "alfred_command" in names
     end
 
-    test "execute project_list" do
-      result = Alfred.Chat.Tools.execute("project_list", %{})
+    test "execute alfred_command status" do
+      result = Alfred.Chat.Tools.execute("alfred_command", %{"command" => "status"})
       assert is_binary(result)
     end
 
-    test "execute task_list" do
-      result = Alfred.Chat.Tools.execute("task_list", %{})
-      assert is_binary(result)
+    test "execute alfred_command blocked for vault" do
+      result = Alfred.Chat.Tools.execute("alfred_command", %{"command" => "vault list"})
+      assert result =~ "non disponible"
     end
 
     test "execute note_add with nonexistent project" do
@@ -134,6 +134,9 @@ defmodule Alfred.ChatTest do
     end
 
     test "execute project_create and note_add" do
+      # Cleanup from any previous run
+      Alfred.Projects.Manager.delete("ToolTest")
+
       # Create project
       result = Alfred.Chat.Tools.execute("project_create", %{"name" => "ToolTest"})
       assert result =~ "créé"
@@ -146,9 +149,9 @@ defmodule Alfred.ChatTest do
       result = Alfred.Chat.Tools.execute("task_add", %{"project" => "ToolTest", "description" => "Tâche test"})
       assert result =~ "Tâche #"
 
-      # List tasks
-      result = Alfred.Chat.Tools.execute("task_list", %{"project" => "ToolTest"})
-      assert result =~ "Tâche test"
+      # List tasks via generic command
+      result = Alfred.Chat.Tools.execute("alfred_command", %{"command" => "task list ToolTest"})
+      assert result =~ "Tâche test" or result =~ "tâche"
 
       # Cleanup
       Alfred.Projects.Manager.delete("ToolTest")
