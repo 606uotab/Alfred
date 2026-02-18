@@ -135,6 +135,9 @@ defmodule Alfred.CLI do
       ["soul" | soul_args] ->
         Alfred.Soul.Commands.handle(soul_args)
 
+      ["shell"] ->
+        Alfred.Shell.start()
+
       ["dashboard"] ->
         dashboard()
 
@@ -442,6 +445,7 @@ defmodule Alfred.CLI do
     Alfred.Vault.Migration.check_and_suggest()
     Butler.greet()
     Alfred.Remind.Commands.check_and_notify()
+    Alfred.Maintenance.run_startup_checks()
 
     # Quick summary — pure Elixir, no external calls
     projects = Projects.list()
@@ -461,31 +465,8 @@ defmodule Alfred.CLI do
       end
 
       maybe_show_cortex_oneliner(projects)
-      maybe_show_disk_alert()
       IO.puts("")
     end
-  end
-
-  defp maybe_show_disk_alert do
-    arms_info = :alfred_health.check_arms()
-
-    if arms_info.binary_found do
-      case Alfred.Arms.Port.send_command(%{cmd: "disk_usage"}) do
-        {:ok, %{"alert" => true, "partitions" => parts}} ->
-          critical =
-            Enum.filter(parts, fn p -> p["percent_used"] >= 90 end)
-
-          Enum.each(critical, fn p ->
-            avail_gb = Float.round(p["available_mb"] / 1024, 1)
-            IO.puts("  /!\\ Disque #{p["mount"]} : #{avail_gb} Go restants (#{p["percent_used"]}%)")
-          end)
-
-        _ ->
-          :ok
-      end
-    end
-  rescue
-    _ -> :ok
   end
 
   defp maybe_show_cortex_oneliner(projects) do
@@ -874,6 +855,7 @@ defmodule Alfred.CLI do
       alfred remind done <id>                    Accomplir un rappel
       alfred remind delete <id>                  Supprimer un rappel
       alfred health                              Diagnostic des organes
+      alfred shell                               Mode interactif (REPL)
 
       alfred soul init                           Inscrire l'âme (coffre creator)
       alfred soul check                          Vérifier l'âme
