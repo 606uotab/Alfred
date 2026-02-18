@@ -128,6 +128,9 @@ defmodule Alfred.CLI do
       ["cortex" | cortex_args] ->
         Alfred.Cortex.Commands.handle(cortex_args)
 
+      ["arms" | arms_args] ->
+        Alfred.Arms.Commands.handle(arms_args)
+
       ["soul" | soul_args] ->
         Alfred.Soul.Commands.handle(soul_args)
 
@@ -457,8 +460,31 @@ defmodule Alfred.CLI do
       end
 
       maybe_show_cortex_oneliner(projects)
+      maybe_show_disk_alert()
       IO.puts("")
     end
+  end
+
+  defp maybe_show_disk_alert do
+    arms_info = :alfred_health.check_arms()
+
+    if arms_info.binary_found do
+      case Alfred.Arms.Port.send_command(%{cmd: "disk_usage"}) do
+        {:ok, %{"alert" => true, "partitions" => parts}} ->
+          critical =
+            Enum.filter(parts, fn p -> p["percent_used"] >= 90 end)
+
+          Enum.each(critical, fn p ->
+            avail_gb = Float.round(p["available_mb"] / 1024, 1)
+            IO.puts("  /!\\ Disque #{p["mount"]} : #{avail_gb} Go restants (#{p["percent_used"]}%)")
+          end)
+
+        _ ->
+          :ok
+      end
+    end
+  rescue
+    _ -> :ok
   end
 
   defp maybe_show_cortex_oneliner(projects) do
@@ -603,19 +629,65 @@ defmodule Alfred.CLI do
     IO.puts("  #{culture_suggestions} suggestion(s) en attente d'approbation")
     IO.puts("")
 
-    # Section 5: Cortex (R) — optionnel
+    # Section 5: Bras (Ada) — optionnel
+    arms_info = :alfred_health.check_arms()
+
+    if arms_info.binary_found do
+      dashboard_arms()
+    end
+
+    # Section 6: Cortex (R) — optionnel
     cortex_info = :alfred_health.check_cortex()
 
     if cortex_info.r_found and cortex_info.script_found and projects != [] do
       dashboard_cortex(projects)
     end
 
-    # Section 6: Cerveau (Julia) — optionnel
+    # Section 7: Cerveau (Julia) — optionnel
     brain_info = :alfred_health.check_brain()
 
     if brain_info.julia_found and brain_info.script_found and projects != [] do
       dashboard_brain(projects)
     end
+  end
+
+  defp dashboard_arms do
+    IO.puts("  -- Environnement (Bras/Ada) --")
+
+    case Alfred.Arms.Port.send_command(%{cmd: "system_info"}) do
+      {:ok, %{"info" => info}} ->
+        IO.puts("  #{info["hostname"]} — #{info["os"]} — up #{info["uptime"]}")
+
+      _ ->
+        :ok
+    end
+
+    case Alfred.Arms.Port.send_command(%{cmd: "memory_usage"}) do
+      {:ok, %{"memory" => mem}} ->
+        total_gb = Float.round(mem["total_mb"] / 1024, 1)
+        avail_gb = Float.round(mem["available_mb"] / 1024, 1)
+        IO.puts("  RAM : #{avail_gb} Go disponibles / #{total_gb} Go (#{mem["percent_used"]}%)")
+
+      _ ->
+        :ok
+    end
+
+    case Alfred.Arms.Port.send_command(%{cmd: "disk_usage"}) do
+      {:ok, %{"partitions" => parts}} ->
+        root = Enum.find(parts, fn p -> p["mount"] == "/" end)
+
+        if root do
+          avail_gb = Float.round(root["available_mb"] / 1024, 1)
+          IO.puts("  Disque / : #{avail_gb} Go disponibles (#{root["percent_used"]}% utilise)")
+        end
+
+      _ ->
+        :ok
+    end
+
+    IO.puts("")
+  rescue
+    _ -> :ok
   end
 
   defp dashboard_cortex(projects) do
@@ -710,6 +782,7 @@ defmodule Alfred.CLI do
   defp organ_label(:scheduler), do: "Muscles (Scheduler)"
   defp organ_label(:brain), do: "Cerveau (Julia)"
   defp organ_label(:cortex), do: "Cortex (R)"
+  defp organ_label(:arms), do: "Bras (Ada)"
   defp organ_label(:mistral), do: "Langage (Mistral AI)"
   defp organ_label(other), do: "#{other}"
 
@@ -744,6 +817,10 @@ defmodule Alfred.CLI do
       {false, _} -> "Clé API non configurée"
       _ -> "Statut inconnu"
     end
+  end
+
+  defp organ_details(:arms, info) do
+    if info.binary_found, do: "Binaire OK", else: "Binaire introuvable"
   end
 
   defp organ_details(:brain, info) do
@@ -817,6 +894,11 @@ defmodule Alfred.CLI do
       alfred summarize <projet>                  Résumé du projet
       alfred suggest                             Suggestions transversales
       alfred prioritize <projet>                 Priorisation intelligente
+
+      alfred arms status                        Etat de la machine
+      alfred arms disk                          Utilisation des disques
+      alfred arms memory                        Etat de la memoire
+      alfred arms backup                        Sauvegarder les donnees
 
       alfred remind <projet> <texte> in <durée>  Programmer un rappel
       alfred remind list                         Lister les rappels

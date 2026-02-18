@@ -6,7 +6,8 @@
 -module(alfred_health).
 
 -export([check_all/0, check_beam/0, check_vault/0, check_storage/0,
-         check_scheduler/0, check_brain/0, check_cortex/0, check_mistral/0]).
+         check_scheduler/0, check_brain/0, check_cortex/0, check_mistral/0,
+         check_arms/0]).
 
 %% @doc Check the health of all Alfred components.
 -spec check_all() -> list({atom(), map()}).
@@ -18,6 +19,7 @@ check_all() ->
         {scheduler, check_scheduler()},
         {brain, check_brain()},
         {cortex, check_cortex()},
+        {arms, check_arms()},
         {mistral, check_mistral()}
     ].
 
@@ -143,6 +145,16 @@ check_cortex() ->
             #{status => warning, r_found => true, script_found => false};
         {false, _} ->
             #{status => warning, r_found => false, script_found => ScriptFound}
+    end.
+
+%% @doc Check if the Ada arms binary is available.
+check_arms() ->
+    BinaryPath = "native/arms/bin/alfred-arms",
+    case filelib:is_file(BinaryPath) of
+        true ->
+            #{status => ok, binary_found => true};
+        false ->
+            #{status => warning, binary_found => false}
     end.
 
 %% @doc Check if Mistral API key is configured.
