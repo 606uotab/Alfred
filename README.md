@@ -1,10 +1,18 @@
-# Alfred — Le Majordome Numérique
+# Alfred — Majordome Numérique
 
-Alfred est un être numérique dévoué, fidèle et toujours disponible. Il aide son maître dans l'administration de ses projets, garde ses secrets, converse avec intelligence et se souvient de chaque échange.
+Un majordome numérique avec une architecture organique en 6 langages.
 
-## Architecture
+```
+$ ./alfred/alfred
 
-Architecture polyglotte à 6 langages, chacun incarnant un organe. Elixir orchestre tout — les autres communiquent via Erlang Ports (JSON stdin/stdout) ou cohabitation BEAM native.
+  🎩 Alfred : Bonjour Monsieur. Comment puis-je vous être utile ce matin ?
+
+  ── Aperçu rapide ──
+  3 projet(s), 5 tâche(s) en attente, 2 rappel(s)
+  📊 50% d'accomplissement global
+```
+
+## Anatomie
 
 ```
        Mistral AI (langage)
@@ -16,142 +24,182 @@ Architecture polyglotte à 6 langages, chacun incarnant un organe. Elixir orches
          Zig ←──┘
 ```
 
-| Organe | Langage | Rôle | Statut |
-|--------|---------|------|--------|
-| Le Coeur | **Elixir** | CLI, orchestration, stockage, conversation | v0.2 |
-| Les Os | **Zig** | Coffre-fort chiffré AES-256-GCM | v0.1 |
-| Les Muscles | **Erlang** | Scheduler OTP, supervision, health | v0.1 |
-| Le Cerveau | **Julia** | Analyse, résumés, extraction de faits, patterns | v0.2 |
-| Le Cortex | **R** | Statistiques, tendances, analyse comportementale | v0.2 |
-| Le Langage | **Mistral AI** | Conversation intelligente via API | v0.2 |
-| Les Bras | **Ada** | Interaction système/matériel | Prévu |
+| Organe | Langage | Rôle |
+|--------|---------|------|
+| **Coeur** | Elixir | Hub central, CLI, mémoire, orchestration |
+| **Os** | Zig | Coffre-fort chiffré AES-256-GCM (3 vaults) |
+| **Muscles** | Erlang | Scheduler OTP, supervision, rappels |
+| **Cerveau** | Julia | Analyse IA, suggestions, priorisation |
+| **Cortex** | R | Statistiques, tendances, corrélations |
+| **Bras** | Ada | Observation système, backup, alertes |
+| **Langage** | Mistral AI | Conversation intelligente |
 
-## Mémoire
-
-Alfred possède une mémoire persistante à 3 couches :
-
-- **Épisodique** — Chaque conversation est sauvée et résumée
-- **Sémantique** — Faits extraits sur le maître (préférences, connaissances, contexte)
-- **Procédurale** — Patterns comportementaux détectés au fil du temps
-
-Après chaque conversation, Alfred extrait les faits importants et les mémorise. Avant chaque réponse, il charge les souvenirs pertinents dans son contexte.
-
-## Prérequis
-
-- **Elixir** >= 1.15 / **Erlang/OTP** >= 26
-- **Zig** >= 0.13 (coffre-fort)
-- **Julia** >= 1.10 (analyse)
-- **R** >= 4.0 + jsonlite (statistiques)
-- **Clé API Mistral** (conversation)
+Tous les organes communiquent via le protocole JSON stdin/stdout (Erlang Ports).
 
 ## Installation
 
-```bash
-cd alfred
-mix deps.get
-
-# Coffre-fort Zig
-cd native/vault && zig build && cd ../..
-
-# Build
-mix escript.build
-
-# Stocker la clé Mistral dans le coffre-fort
-./alfred vault init
-./alfred vault store mistral_api_key
-```
-
-## Commandes
-
-### Conversation (Mistral AI)
+### Prérequis
 
 ```bash
-alfred chat                                # Conversation interactive
-alfred ask "Question ?"                    # Question ponctuelle
+# Elixir + Erlang
+sudo apt install elixir erlang
+
+# Zig (0.13+)
+# https://ziglang.org/download/
+
+# Julia
+curl -fsSL https://install.julialang.org | sh
+
+# R
+sudo apt install r-base
+
+# Ada (GNAT)
+sudo apt install gnat
 ```
 
-### Mémoire
+### Compilation
 
 ```bash
-alfred memory facts                        # Faits mémorisés
-alfred memory search <mots>                # Rechercher dans la mémoire
-alfred memory episodes                     # Historique des conversations
-alfred memory patterns                     # Patterns détectés
-alfred memory forget <id>                  # Oublier un fait
+git clone https://github.com/606uotab/Alfred.git
+cd Alfred
+make
 ```
 
-### Projets & Tâches
+## Utilisation
 
 ```bash
-alfred project new/list/delete <nom>       # Gestion de projets
-alfred task add <projet> <desc>            # Ajouter une tâche
-alfred task list [projet]                  # Lister les tâches
-alfred task done <id>                      # Accomplir une tâche
-alfred task priority <id> <1-5>            # Priorité
-alfred note add <projet> <texte>           # Notes
-alfred status                              # Vue d'ensemble
+# Raccourci recommandé
+alias alfred='./alfred/alfred'
+
+# Gestion de projets
+alfred project new MonProjet
+alfred task add MonProjet "Implémenter la feature X"
+alfred task list
+alfred task done 1
+alfred task priority 2 3
+
+# Notes
+alfred note add MonProjet "Idée importante"
+alfred note list
+
+# Rappels (Erlang)
+alfred remind MonProjet "Deadline" in 2h
+alfred remind list
+
+# Coffre-fort chiffré (Zig)
+alfred vault setup                    # Créer les 3 coffres
+alfred vault store creator ma_cle     # Stocker un secret
+alfred vault get creator ma_cle       # Récupérer
+alfred vault list creator             # Lister les clés
+
+# Culture (base de connaissances)
+alfred culture learn botanique "Les orchidées aiment l'humidité"
+alfred culture search orchidées
+alfred culture list
+
+# Intelligence artificielle (Julia)
+alfred briefing                       # Synthèse quotidienne
+alfred think about MonProjet          # Analyse profonde
+alfred summarize MonProjet            # Résumé
+alfred suggest                        # Suggestions transversales
+alfred search "mot clé"               # Recherche universelle
+alfred prioritize MonProjet           # Priorisation intelligente
+
+# Statistiques (R)
+alfred cortex trends                  # Tendances interactions
+alfred cortex productivity            # Stats productivité
+alfred cortex culture                 # Tendances culturelles
+alfred cortex correlations            # Analyse croisée
+
+# Système (Ada)
+alfred arms status                    # Info machine
+alfred arms disk                      # Espace disque
+alfred arms memory                    # RAM / swap
+alfred arms backup                    # Sauvegarde
+
+# Conversation (Mistral AI)
+alfred chat                           # Mode interactif
+alfred ask "Quelle est la capitale du Japon ?"
+
+# Tableaux de bord
+alfred dashboard                      # Vue unifiée complète
+alfred status                         # Aperçu rapide
+alfred health                         # Diagnostic des organes
 ```
 
-### Coffre-fort (Zig)
+## Architecture
 
-```bash
-alfred vault init                          # Créer le coffre
-alfred vault store/get/list/delete <clé>   # Gérer les secrets
-alfred vault note/notes                    # Notes chiffrées
+```
+Alfred/
+├── Makefile                          # Build global (make)
+├── GENESE.md                         # Journal de création
+├── alfred/
+│   ├── mix.exs                       # Projet Elixir
+│   ├── lib/alfred/
+│   │   ├── cli.ex                    # Point d'entrée CLI
+│   │   ├── butler.ex                 # Personnalité majordome
+│   │   ├── colors.ex                 # Couleurs ANSI
+│   │   ├── project_data.ex           # Données projet partagées
+│   │   ├── application.ex            # Supervision OTP
+│   │   ├── storage/local.ex          # Persistance JSON
+│   │   ├── projects/                 # Projets, tâches, notes
+│   │   ├── vault/                    # Coffre-fort (Zig port)
+│   │   ├── brain/                    # Cerveau (Julia port)
+│   │   ├── cortex/                   # Cortex (R port)
+│   │   ├── arms/                     # Bras (Ada port)
+│   │   ├── memory/
+│   │   │   ├── episodic.ex           # Conversations
+│   │   │   ├── semantic.ex           # Faits
+│   │   │   ├── procedural.ex         # Patterns
+│   │   │   └── learner.ex            # Pipeline d'apprentissage
+│   │   ├── chat/                     # Conversation Mistral AI
+│   │   ├── culture/                  # Base de connaissances
+│   │   └── soul/                     # Identité personnalisable
+│   ├── src/
+│   │   ├── alfred_scheduler.erl      # Scheduler gen_server
+│   │   └── alfred_health.erl         # Health check (8 organes)
+│   ├── native/
+│   │   ├── vault/src/main.zig        # AES-256-GCM
+│   │   ├── brain/src/main.jl         # Analyse Julia
+│   │   ├── cortex/src/main.R         # Statistiques R
+│   │   └── arms/src/alfred_arms.adb  # Système Ada
+│   └── test/                         # 163 tests
+└── ~/.alfred/                        # Données utilisateur
+    ├── data/                         # Projets, tâches, mémoire
+    ├── vaults/                       # Coffres chiffrés (3)
+    └── backups/                      # Sauvegardes Ada
 ```
 
-### Rappels (Erlang)
+## Mémoire
 
-```bash
-alfred remind <projet> <texte> in <durée>  # 30m, 2h, 1d, 1w
-alfred remind list/done/delete <id>        # Gérer les rappels
-```
+Alfred a une mémoire persistante à 3 couches :
 
-### Analyse (Julia)
+- **Épisodique** : chaque conversation est enregistrée et résumée
+- **Sémantique** : les faits importants sont extraits automatiquement
+- **Procédurale** : les patterns comportementaux sont détectés au fil du temps
 
-```bash
-alfred think about <projet>                # Analyse intelligente
-alfred summarize <projet>                  # Résumé du projet
-alfred suggest                             # Suggestions transversales
-```
+Après chaque conversation, le pipeline d'apprentissage :
+1. Sauvegarde l'épisode
+2. Extrait les faits (Julia)
+3. Résume la conversation (Julia)
+4. Détecte les patterns (Julia)
+5. Extrait des suggestions de culture (Julia)
+6. Consolide les statistiques (R)
 
-### Cortex (R)
+## Sécurité
 
-```bash
-alfred cortex trends                       # Tendances des interactions
-alfred cortex stats                        # Statistiques de mémoire
-alfred cortex analyze                      # Analyse comportementale
-```
-
-### Diagnostic
-
-```bash
-alfred health                              # État de chaque organe (7 checks)
-alfred help                                # Aide complète
-```
+- Chiffrement AES-256-GCM pour tous les secrets
+- 3 coffres séparés : `creator`, `users`, `culture`
+- Contrôle d'accès par rôle (maître, admin, utilisateur)
+- Dérivation de clé SHA-256 (100 000 itérations)
+- 100% local — aucune donnée ne quitte la machine
 
 ## Tests
 
 ```bash
-cd alfred && mix test    # 96 tests, 6 organes
-```
-
-## Stockage
-
-```
-~/.alfred/
-  data/
-    projects.json                          # Projets
-    tasks.json                             # Tâches
-    notes.json                             # Notes
-    reminders.dat                          # Rappels (Erlang binary)
-    memory/
-      semantic.json                        # Faits mémorisés
-      procedural.json                      # Patterns comportementaux
-      episodes/                            # Conversations (1 fichier/session)
-  vault.enc                                # Coffre-fort chiffré (AES-256-GCM)
+make test    # 163 tests
 ```
 
 ## Licence
 
-Projet personnel et expérimental.
+Projet personnel de Baptiste — vibe-dev assisté par Claude.
