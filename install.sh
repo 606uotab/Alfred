@@ -34,8 +34,20 @@ mkdir -p "${ALFRED_HOME}"
 cp "${ALFRED_DIR}/alfred_completion.bash" "${ALFRED_HOME}/alfred_completion.bash"
 echo "  ✓ Completion bash installée"
 
-# 4. Ajoute le source dans ~/.bashrc si absent
+# 4. Ajoute ~/bin au PATH si nécessaire
 BASHRC="${HOME}/.bashrc"
+
+if [ "${INSTALL_DIR}" = "${HOME}/bin" ]; then
+    PATH_LINE='export PATH="${HOME}/bin:${PATH}"'
+    if [ -f "${BASHRC}" ] && ! grep -q '${HOME}/bin' "${BASHRC}" && ! grep -q '$HOME/bin' "${BASHRC}"; then
+        echo "" >> "${BASHRC}"
+        echo "# Alfred PATH" >> "${BASHRC}"
+        echo "${PATH_LINE}" >> "${BASHRC}"
+        echo "  ✓ ~/bin ajouté au PATH dans ~/.bashrc"
+    fi
+fi
+
+# 5. Ajoute la completion dans ~/.bashrc si absent
 SOURCE_LINE="[ -f ~/.alfred/alfred_completion.bash ] && source ~/.alfred/alfred_completion.bash"
 
 if [ -f "${BASHRC}" ]; then
@@ -48,7 +60,9 @@ if [ -f "${BASHRC}" ]; then
         echo "  ✓ Completion déjà dans ~/.bashrc"
     fi
 else
-    echo "${SOURCE_LINE}" > "${BASHRC}"
+    echo "${PATH_LINE}" > "${BASHRC}"
+    echo "# Alfred completion" >> "${BASHRC}"
+    echo "${SOURCE_LINE}" >> "${BASHRC}"
     echo "  ✓ ~/.bashrc créé avec completion"
 fi
 
