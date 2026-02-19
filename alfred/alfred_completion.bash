@@ -8,7 +8,7 @@ _alfred_completions() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
     # Top-level commands
-    local commands="project task note vault chat ask shell remind culture search briefing suggest summarize prioritize think cortex arms soul dashboard health status help memory daemon matrix user"
+    local commands="project task note vault chat ask shell remind culture search briefing suggest summarize prioritize think cortex arms soul dashboard health status help memory daemon simplex user"
 
     case "${prev}" in
         alfred)
@@ -43,8 +43,8 @@ _alfred_completions() {
             COMPREPLY=( $(compgen -W "start stop status" -- "${cur}") )
             return 0
             ;;
-        matrix)
-            COMPREPLY=( $(compgen -W "connect status rooms send disconnect" -- "${cur}") )
+        simplex)
+            COMPREPLY=( $(compgen -W "connect status send disconnect" -- "${cur}") )
             return 0
             ;;
         soul)

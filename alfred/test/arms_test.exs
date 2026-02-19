@@ -8,12 +8,23 @@ defmodule Alfred.ArmsTest do
 
     case Process.whereis(Alfred.Supervisor) do
       nil -> :ok
-      pid -> Supervisor.stop(pid)
+      pid ->
+        try do
+          Supervisor.stop(pid, :normal, 5_000)
+        catch
+          :exit, _ -> :ok
+        end
+        Process.sleep(100)
     end
 
     case GenServer.whereis(:alfred_scheduler) do
       nil -> :ok
-      pid -> GenServer.stop(pid)
+      pid ->
+        try do
+          GenServer.stop(pid, :normal, 5_000)
+        catch
+          :exit, _ -> :ok
+        end
     end
 
     {:ok, _} = Alfred.Application.start()

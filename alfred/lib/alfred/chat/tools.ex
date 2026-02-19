@@ -10,7 +10,7 @@ defmodule Alfred.Chat.Tools do
   @safe_commands ~w(
     project task note status dashboard health remind
     culture search briefing suggest summarize prioritize
-    think cortex arms memory matrix daemon soul
+    think cortex arms memory simplex daemon soul
   )
 
   def definitions do

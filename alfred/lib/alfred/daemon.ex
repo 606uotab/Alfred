@@ -120,10 +120,10 @@ defmodule Alfred.Daemon do
           IO.puts("  #{Colors.yellow("⏰")} Rappel : [#{r.project}] #{r.text}")
         end)
 
-        # Notifier via Matrix si connecté
-        if Alfred.Matrix.Bridge.running?() do
+        # Notifier via SimpleX si connecté
+        if Alfred.Simplex.Bridge.running?() do
           Enum.each(due, fn r ->
-            Alfred.Matrix.Bridge.send_notification(
+            Alfred.Simplex.Bridge.send_notification(
               "⏰ Rappel : [#{r.project}] #{r.text}"
             )
           end)

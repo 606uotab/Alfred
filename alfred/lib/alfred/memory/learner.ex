@@ -13,10 +13,10 @@ defmodule Alfred.Memory.Learner do
   @consolidation_interval 5
 
   @doc """
-  Pipeline d'apprentissage à partir de messages bruts (ex: Matrix).
+  Pipeline d'apprentissage à partir de messages bruts (ex: SimpleX).
   Crée un épisode synthétique et applique le pipeline standard.
   """
-  def learn_from_messages(messages, token, source \\ "matrix") when is_list(messages) do
+  def learn_from_messages(messages, token, source \\ "simplex") when is_list(messages) do
     if length(messages) < 2, do: :ok
 
     now = DateTime.utc_now() |> DateTime.to_iso8601()

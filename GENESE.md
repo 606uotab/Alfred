@@ -1486,21 +1486,22 @@ Toutes les 60 secondes, Alfred verifie si des rappels sont en retard. Toutes les
 
 Le daemon est le premier pas vers l'autonomie d'Alfred. Il ne reagit plus seulement --- il *agit*.
 
-### Le bridge Matrix : Alfred dans Element
+### Le bridge SimpleX : Alfred dans le reseau prive
 
-Le bridge Matrix est peut-etre la feature la plus excitante de la version 2.0. Alfred peut desormais ecouter une room Element et repondre comme en mode chat. Quelqu'un ecrit dans la room, Alfred lit le message, le traite via Mistral (avec function calling), et repond.
+Le bridge de communication a d'abord ete concu pour Matrix/Element. Mais avant meme d'etre connecte, le choix a ete reconsidere. SimpleX Chat --- decentralise, sans serveur, chiffre de bout en bout --- correspondait mieux a la philosophie locale d'Alfred. Et surtout : il tourne dans un sandbox bubblewrap (`bwrap`), avec un filesystem en lecture seule et un PID namespace isole. Seul le port WebSocket local (5225) est expose.
 
-L'architecture repose sur trois modules :
+L'architecture repose sur quatre modules :
 
-- **`Matrix.Client`** : client HTTP bas niveau utilisant `:httpc` (zero dependance), avec les endpoints `sync`, `send_message`, `join_room`, `whoami`.
-- **`Matrix.Bridge`** : GenServer qui fait le pont --- boucle de synchronisation toutes les 5 secondes via long-polling, traitement des messages, envoi des reponses.
-- **`Matrix.Commands`** : interface CLI pour `alfred matrix connect|status|disconnect|send`.
+- **`Simplex.WebSocket`** : client WebSocket minimal RFC 6455 sur `:gen_tcp` (zero dependance). Handshake HTTP, frames masquees, decodage avec buffer pour les frames partielles. ~150 lignes de pur bit-twiddling Elixir.
+- **`Simplex.Client`** : couche API SimpleX par-dessus le WebSocket. Protocole JSON : `{"corrId": "id", "cmd": "@contact message"}`.
+- **`Simplex.Bridge`** : GenServer event-driven --- plus de polling HTTP, les messages arrivent via `{:tcp, socket, data}`. Reconnexion automatique, keepalive, batch learning.
+- **`Simplex.Commands`** : interface CLI pour `alfred simplex connect|status|disconnect|send`.
 
-Le bridge reutilise exactement le meme `Chat.Commands.send_message/5` que le chat local. Meme function calling, memes outils, meme personnalite. La difference est juste le medium : terminal vs Matrix. C'est la puissance de l'architecture modulaire --- le changement de canal ne change rien a l'intelligence.
+Le bridge reutilise exactement le meme `Chat.Commands.send_message/5` que le chat local. Meme function calling, memes outils, meme personnalite. La difference est juste le medium : terminal vs SimpleX. C'est la puissance de l'architecture modulaire --- le changement de canal ne change rien a l'intelligence.
 
-### La memoire longue : apprendre de Matrix
+### La memoire longue : apprendre des conversations
 
-Chaque echange via Matrix nourrit la memoire d'Alfred. Le bridge accumule les messages par batch de 10, puis appelle `Learner.learn_from_messages/3` --- une nouvelle fonction qui cree un episode synthetique et applique le pipeline d'apprentissage complet (extraction de faits, resume Julia, detection de patterns, suggestions de culture, consolidation R).
+Chaque echange via SimpleX nourrit la memoire d'Alfred. Le bridge accumule les messages par batch de 10, puis appelle `Learner.learn_from_messages/3` --- une nouvelle fonction qui cree un episode synthetique et applique le pipeline d'apprentissage complet (extraction de faits, resume Julia, detection de patterns, suggestions de culture, consolidation R).
 
 La memoire semantique a aussi gagne une fonction `consolidate/0` qui fusionne les faits redondants :
 
@@ -1520,10 +1521,10 @@ end
 v1.0     (Consolidation) : 167 tests    ██████████████████████████████░░
 v2.0a    (Chat)          : 179 tests    ████████████████████████████████░
 v2.0b    (Tools)         : 186 tests    █████████████████████████████████
-v2.0c    (Daemon+Matrix) : 217 tests    ██████████████████████████████████████
+v2.0c    (Daemon+SimpleX) : 228 tests   ██████████████████████████████████████████
 ```
 
-De 167 a 217 : 50 nouveaux tests pour couvrir le function calling, les outils, la soul vivante, le daemon, le bridge Matrix, la consolidation memoire. Chaque test est un neurone de plus dans le systeme nerveux d'Alfred.
+De 167 a 228 : 61 nouveaux tests pour couvrir le function calling, les outils, la soul vivante, le daemon, le bridge SimpleX, le client WebSocket, la consolidation memoire. Chaque test est un neurone de plus dans le systeme nerveux d'Alfred.
 
 ### La composition d'Alfred
 
@@ -1546,7 +1547,7 @@ Et pour rendre tout cela accessible, un script `install.sh` et une completion ba
 
 ```bash
 make install    # Compile tout, cree le symlink, installe la completion
-alfred <TAB>    # project task note vault chat daemon matrix soul...
+alfred <TAB>    # project task note vault chat daemon simplex soul...
 ```
 
 Alfred s'installe en une commande et se complete au Tab. Le majordome est pret a servir.

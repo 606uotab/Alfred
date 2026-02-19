@@ -16,11 +16,11 @@ $ alfred
 ## Anatomie
 
 ```
-       Mistral AI (langage)    Matrix/Element
+       Mistral AI (langage)    SimpleX Chat
             │                       │
          Ada ←──┐                   │
            R ←──┤                   │
-       Julia ←──┼─── Elixir (coeur) ←──→ Maître (CLI / Shell / Element)
+       Julia ←──┼─── Elixir (coeur) ←──→ Maître (CLI / Shell / SimpleX)
       Erlang ←──┤    (orchestre tout)
          Zig ←──┘
 ```
@@ -173,16 +173,17 @@ alfred daemon stop                    # Arreter
 
 Le daemon verifie les rappels toutes les 60 secondes, execute la maintenance horaire, et consolide la memoire quotidiennement.
 
-### Matrix/Element --- Bridge
+### SimpleX Chat --- Bridge
 
 ```bash
-alfred matrix connect                 # Connecter a une room Element
-alfred matrix status                  # Etat du bridge
-alfred matrix send "Hello"            # Envoyer un message
-alfred matrix disconnect              # Deconnecter
+bash alfred/scripts/simplex-sandbox.sh &  # Lancer SimpleX en sandbox
+alfred simplex connect                # Connecter a SimpleX Chat
+alfred simplex status                 # Etat du bridge
+alfred simplex send "Hello"           # Envoyer un message
+alfred simplex disconnect             # Deconnecter
 ```
 
-Alfred ecoute une room Matrix et repond comme en mode chat, avec le meme function calling et la meme personnalite.
+Alfred ecoute via SimpleX Chat (WebSocket local, sandbox bwrap) et repond comme en mode chat, avec le meme function calling et la meme personnalite.
 
 ### Tableaux de bord
 
@@ -225,10 +226,11 @@ Alfred/
 │   │   │   ├── tools.ex              # Outils pour Mistral
 │   │   │   ├── session.ex            # Gestion de session
 │   │   │   └── system_prompt.ex      # Identite d'Alfred
-│   │   ├── matrix/
-│   │   │   ├── client.ex             # Client HTTP Matrix
+│   │   ├── simplex/
+│   │   │   ├── websocket.ex          # Client WebSocket RFC 6455
+│   │   │   ├── client.ex             # API SimpleX Chat
 │   │   │   ├── bridge.ex             # Bridge GenServer
-│   │   │   └── commands.ex           # CLI Matrix
+│   │   │   └── commands.ex           # CLI SimpleX
 │   │   ├── soul/
 │   │   │   ├── state.ex              # Traits de personnalite
 │   │   │   ├── evolver.ex            # Evolution Mistral-driven
@@ -245,7 +247,7 @@ Alfred/
 │   │   ├── brain/src/main.jl         # Analyse Julia
 │   │   ├── cortex/src/main.R         # Statistiques R
 │   │   └── arms/src/alfred_arms.adb  # Systeme Ada
-│   └── test/                         # 217 tests
+│   └── test/                         # 228 tests
 └── ~/.alfred/                        # Donnees utilisateur
     ├── data/                         # Projets, taches, memoire, soul
     ├── vaults/                       # Coffres chiffres (3)
@@ -275,12 +277,12 @@ Apres chaque conversation, le pipeline d'apprentissage :
 - 3 coffres separes : `creator`, `users`, `culture`
 - Controle d'acces par role (maitre, admin, utilisateur)
 - Derivation de cle SHA-256 (100 000 iterations)
-- 100% local --- aucune donnee ne quitte la machine (sauf Mistral API et Matrix si active)
+- 100% local --- aucune donnee ne quitte la machine (sauf Mistral API et SimpleX si actif)
 
 ## Tests
 
 ```bash
-make test    # 217 tests
+make test    # 228 tests
 ```
 
 ## Licence
