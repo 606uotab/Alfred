@@ -1,7 +1,7 @@
 # Alfred — Makefile global
 # Compile les 6 organes et construit l'escript CLI
 
-.PHONY: all vault arms elixir clean test help
+.PHONY: all vault arms elixir clean test install help
 
 all: vault arms elixir
 	@echo ""
@@ -38,6 +38,10 @@ clean:
 	@cd alfred && mix clean
 	@echo "  ✓ Nettoyage terminé"
 
+# Installation (compile + symlink + completion)
+install: all
+	@bash install.sh
+
 # Aide
 help:
 	@echo ""
@@ -48,6 +52,7 @@ help:
 	@echo "  make arms     Compiler les bras (Ada)"
 	@echo "  make elixir   Compiler le coeur (Elixir escript)"
 	@echo "  make test     Lancer les tests"
+	@echo "  make install  Installer Alfred (compile + symlink + completion)"
 	@echo "  make clean    Nettoyer les artefacts"
 	@echo ""
 	@echo "  Prérequis : zig, gnat, elixir, julia, R"

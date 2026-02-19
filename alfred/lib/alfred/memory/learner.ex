@@ -13,6 +13,40 @@ defmodule Alfred.Memory.Learner do
   @consolidation_interval 5
 
   @doc """
+  Pipeline d'apprentissage à partir de messages bruts (ex: Matrix).
+  Crée un épisode synthétique et applique le pipeline standard.
+  """
+  def learn_from_messages(messages, token, source \\ "matrix") when is_list(messages) do
+    if length(messages) < 2, do: :ok
+
+    now = DateTime.utc_now() |> DateTime.to_iso8601()
+
+    episode = %{
+      "started_at" => now,
+      "ended_at" => now,
+      "mode" => source,
+      "messages" => messages,
+      "message_count" => length(messages),
+      "summary" => nil,
+      "topics" => [],
+      "extracted_fact_ids" => []
+    }
+
+    {:ok, saved} = Episodic.save_episode(episode)
+    episode_id = saved["id"]
+
+    extract_facts(messages, token)
+    summarize_episode(messages, episode_id)
+    detect_patterns()
+    extract_culture_suggestions(messages)
+    maybe_consolidate()
+
+    :ok
+  rescue
+    _ -> :ok
+  end
+
+  @doc """
   Pipeline complet d'apprentissage post-conversation.
   Chaque étape est tolérante aux erreurs — un échec n'empêche pas les suivantes.
   """

@@ -49,11 +49,22 @@ defmodule Alfred.Chat.SystemPrompt do
 
     parts = [@personality]
 
+    # Soul texte (vault) si présente
     parts =
       if soul do
         parts ++ ["\n#{soul}"]
       else
         parts
+      end
+
+    # Soul vivante (traits structurés)
+    parts =
+      case Keyword.get(opts, :soul_state) do
+        %Alfred.Soul.State{} = soul_state ->
+          parts ++ [Alfred.Soul.State.to_prompt_text(soul_state)]
+        _ ->
+          soul_state = Alfred.Soul.State.load()
+          parts ++ [Alfred.Soul.State.to_prompt_text(soul_state)]
       end
 
     parts =

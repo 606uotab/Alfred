@@ -735,7 +735,7 @@ defmodule Alfred.BrainTest do
 
     test "build without enrichments stays clean" do
       prompt = Alfred.Chat.SystemPrompt.build()
-      refute prompt =~ "cortex"
+      refute prompt =~ "Tendance du cortex"
       refute prompt =~ "suggestion(s)"
     end
   end

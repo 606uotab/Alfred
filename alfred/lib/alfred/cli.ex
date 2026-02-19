@@ -136,6 +136,12 @@ defmodule Alfred.CLI do
       ["soul" | soul_args] ->
         Alfred.Soul.Commands.handle(soul_args)
 
+      ["matrix" | matrix_args] ->
+        Alfred.Matrix.Commands.handle(matrix_args)
+
+      ["daemon" | daemon_args] ->
+        Alfred.Daemon.Commands.handle(daemon_args)
+
       ["shell"] ->
         Alfred.Shell.start()
 
@@ -855,11 +861,21 @@ defmodule Alfred.CLI do
       alfred remind list                         Lister les rappels
       alfred remind done <id>                    Accomplir un rappel
       alfred remind delete <id>                  Supprimer un rappel
+      alfred matrix connect                       Connecter à une room Element
+      alfred matrix status                        État du bridge Matrix
+      alfred matrix send <texte>                  Envoyer un message
+      alfred matrix disconnect                    Déconnecter le bridge
+      alfred daemon start                         Démarrer le daemon (veille)
+      alfred daemon status                       État du daemon
+      alfred daemon stop                         Arrêter le daemon
       alfred health                              Diagnostic des organes
       alfred shell                               Mode interactif (REPL)
 
-      alfred soul init                           Inscrire l'âme (coffre creator)
-      alfred soul check                          Vérifier l'âme
+      alfred soul                                 Voir les traits de personnalité
+      alfred soul init                            Inscrire l'âme (coffre creator)
+      alfred soul check                           Vérifier l'âme
+      alfred soul history                         Historique de l'évolution
+      alfred soul reset                           Réinitialiser les traits
 
       alfred help                                Cette aide
     """)

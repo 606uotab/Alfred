@@ -129,6 +129,71 @@ defmodule Alfred.Memory.Semantic do
     all_facts() |> length()
   end
 
+  @doc """
+  Consolide la mémoire sémantique — fusionne les faits redondants.
+  Regroupe par subject, garde le plus confiant, merge les contenus.
+  """
+  def consolidate do
+    facts = all_facts()
+
+    if length(facts) < 2, do: :ok
+
+    # Group by subject (lowercase)
+    groups =
+      facts
+      |> Enum.group_by(fn f ->
+        (f["subject"] || "") |> String.downcase() |> String.trim()
+      end)
+
+    consolidated =
+      groups
+      |> Enum.flat_map(fn {_subject, group_facts} ->
+        if length(group_facts) <= 1 do
+          group_facts
+        else
+          merge_fact_group(group_facts)
+        end
+      end)
+
+    if length(consolidated) < length(facts) do
+      Storage.write(@storage_file, consolidated)
+    end
+
+    :ok
+  end
+
+  defp merge_fact_group(facts) do
+    # Sort by confidence desc, then access_count desc
+    sorted = Enum.sort_by(facts, fn f ->
+      {-(f["confidence"] || 0), -(f["access_count"] || 0)}
+    end)
+
+    primary = hd(sorted)
+    others = tl(sorted)
+
+    # Merge unique contents
+    all_contents =
+      [primary | others]
+      |> Enum.map(fn f -> f["content"] || "" end)
+      |> Enum.uniq()
+      |> Enum.reject(&(&1 == ""))
+
+    merged_content =
+      if length(all_contents) > 1 do
+        Enum.join(all_contents, " | ")
+      else
+        hd(all_contents)
+      end
+
+    merged = %{primary |
+      "content" => merged_content,
+      "access_count" => Enum.sum(Enum.map(facts, fn f -> f["access_count"] || 0 end)),
+      "confidence" => Enum.max(Enum.map(facts, fn f -> f["confidence"] || 0 end))
+    }
+
+    [merged]
+  end
+
   # -- Privé --
 
   defp relevance_score(fact, query_words) do

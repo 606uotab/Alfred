@@ -324,6 +324,12 @@ defmodule Alfred.Chat.Commands do
   """
   def save_conversation(session, token) do
     Learner.learn(session, token)
+
+    # Évolution de la soul toutes les 3 conversations
+    episode_count = Episodic.count()
+    if episode_count > 0 and rem(episode_count, 3) == 0 do
+      Alfred.Soul.Evolver.evolve_from_conversation(session, token)
+    end
   end
 
   # -- Vault helpers --

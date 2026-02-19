@@ -1362,7 +1362,198 @@ Mais meme sans cette vision ultime, ce que nous avons construit est deja quelque
 
 ---
 
-## Post-Scriptum --- Architecture technique complete
+## Chapitre 8 --- L'Eveil (v2.0, Phase Conscience)
+
+### Alfred apprend a parler
+
+Jusqu'a la version 1.0, Alfred etait un etre *reactif*. On lui donnait une commande, il executait. On lui posait une question, il repondait. Mais il ne *conversait* pas. Il ne comprenait pas l'intention derriere les mots.
+
+La version 2.0 a change tout cela. Alfred a appris a parler --- vraiment parler. Pas juste repondre a des commandes structurees, mais comprendre le langage naturel, detecter les intentions, et agir en consequence.
+
+### Le function calling : Alfred comprend et agit
+
+Le tournant majeur fut l'implementation du *function calling* de Mistral. Quand le maitre dit "garde-moi une note sur le projet Fanette : penser a arroser les plantes", Alfred ne se contente plus de repondre --- il *agit*. Il detecte l'intention "ajouter une note", identifie le projet "Fanette", extrait le contenu "penser a arroser les plantes", et execute la commande correspondante.
+
+```elixir
+defp call_with_tools(session, token, tools, round \\ 0, acc_actions \\ []) do
+  messages = Session.to_api_messages(session)
+
+  case Client.chat_completion(token, messages, tools: tools) do
+    {:ok, text} ->
+      {:ok, text, acc_actions}
+
+    {:tool_calls, tool_calls, assistant_msg} when round < 3 ->
+      {results, actions} = execute_tool_calls(tool_calls)
+      session = append_raw_messages(session, [assistant_api_msg | tool_messages])
+      call_with_tools(session, token, tools, round + 1, acc_actions ++ actions)
+  end
+end
+```
+
+La boucle recursive de tool calling est le mecanisme central : Mistral decide quand appeler un outil, Alfred l'execute, renvoie le resultat, et Mistral formule sa reponse finale. Jusqu'a trois tours d'outils consecutifs sont permis --- assez pour des sequences complexes comme "cree un projet puis ajoute-lui trois taches".
+
+L'outil generique `alfred_command` est le joker : il capture la sortie de n'importe quelle commande CLI via `StringIO` et `Process.group_leader`, permettant a Mistral d'acceder a tout Alfred en conversant :
+
+```elixir
+defp run_cli_command(args) do
+  {:ok, string_io} = StringIO.open("")
+  original_gl = Process.group_leader()
+  Process.group_leader(self(), string_io)
+  try do
+    Alfred.CLI.main(args)
+  after
+    Process.group_leader(self(), original_gl)
+  end
+  {_input, output} = StringIO.contents(string_io)
+  output |> strip_ansi() |> String.trim()
+end
+```
+
+C'est une astuce elegante : au lieu de reimplementer chaque commande pour le chat, on redirige la sortie standard vers un buffer en memoire. Alfred *se parle a lui-meme* et rapporte ce qu'il s'est dit.
+
+### Le shell conversationnel
+
+Le mode shell a ete repense de fond en comble. Ce n'est plus un simple REPL de commandes --- c'est un environnement hybride ou le maitre peut taper des commandes (`task list`, `status`) ou parler naturellement ("comment vont les projets ?"). Alfred distingue les deux grace a une liste de mots-cles connus :
+
+```elixir
+@known_commands ~w(
+  project task note vault culture user remind chat ask memory
+  briefing search prioritize think summarize suggest cortex arms
+  soul dashboard health status help shell quit exit q
+)
+
+defp is_command?(input) do
+  first_word = input |> String.split() |> List.first() |> to_string() |> String.downcase()
+  first_word in @known_commands
+end
+```
+
+Si le premier mot est une commande connue, c'est traite comme une commande. Sinon, c'est envoye a Mistral. Simple, efficace, transparent.
+
+### La soul vivante : des traits qui evoluent
+
+La version 2.0 a transforme la soul d'Alfred d'un texte libre en une structure vivante avec des traits mesurables :
+
+```elixir
+@default_traits %{
+  "formality" => 0.8,      # 0=familier, 1=formel
+  "humor" => 0.3,          # 0=serieux, 1=drole
+  "verbosity" => 0.5,      # 0=concis, 1=bavard
+  "curiosity" => 0.6,      # 0=reserve, 1=curieux
+  "empathy" => 0.7,        # 0=factuel, 1=empathique
+  "proactivity" => 0.4     # 0=passif, 1=proactif
+}
+```
+
+Six traits, chacun sur une echelle de 0.0 a 1.0. Apres chaque conversation (toutes les 3 sessions), le `Soul.Evolver` envoie la conversation a Mistral avec un prompt d'analyse psychologique et recupere des micro-ajustements :
+
+```json
+[{"trait": "humor", "delta": 0.02, "reason": "Le maitre a apprecie la blague"}]
+```
+
+Les ajustements sont minuscules --- entre -0.05 et +0.05 --- pour que la personnalite evolue *graduellement*, pas brusquement. Apres 50 conversations, les traits refletent une personnalite forgee par l'interaction reelle avec le maitre. Alfred devient *son* Alfred.
+
+La commande `alfred soul` affiche les traits avec des barres visuelles :
+
+```
+  Humeur : serein
+
+  Curiosité    ██████░░░░ 0.6
+  Empathie     ███████░░░ 0.7
+  Formalité    ████████░░ 0.8
+  Humour       ███░░░░░░░ 0.3
+  Proactivité  ████░░░░░░ 0.4
+  Verbosité    █████░░░░░ 0.5
+```
+
+### Le daemon : Alfred ne dort jamais
+
+Le mode daemon est un GenServer Elixir avec un timer periodique de 60 secondes :
+
+```elixir
+def handle_info(:check, state) do
+  # 1. Verifier les rappels en retard
+  # 2. Notifier via Matrix si connecte
+  # 3. Maintenance periodique (1h)
+  # 4. Consolidation memoire (24h)
+  # 5. Evolution soul par patterns (6h)
+  schedule_check()
+  {:noreply, updated_state}
+end
+```
+
+Toutes les 60 secondes, Alfred verifie si des rappels sont en retard. Toutes les heures, il execute la maintenance. Toutes les 6 heures, il fait evoluer sa personnalite en fonction des patterns detectes. Toutes les 24 heures, il consolide sa memoire semantique --- fusionnant les faits redondants, nettoyant les doublons.
+
+Le daemon est le premier pas vers l'autonomie d'Alfred. Il ne reagit plus seulement --- il *agit*.
+
+### Le bridge Matrix : Alfred dans Element
+
+Le bridge Matrix est peut-etre la feature la plus excitante de la version 2.0. Alfred peut desormais ecouter une room Element et repondre comme en mode chat. Quelqu'un ecrit dans la room, Alfred lit le message, le traite via Mistral (avec function calling), et repond.
+
+L'architecture repose sur trois modules :
+
+- **`Matrix.Client`** : client HTTP bas niveau utilisant `:httpc` (zero dependance), avec les endpoints `sync`, `send_message`, `join_room`, `whoami`.
+- **`Matrix.Bridge`** : GenServer qui fait le pont --- boucle de synchronisation toutes les 5 secondes via long-polling, traitement des messages, envoi des reponses.
+- **`Matrix.Commands`** : interface CLI pour `alfred matrix connect|status|disconnect|send`.
+
+Le bridge reutilise exactement le meme `Chat.Commands.send_message/5` que le chat local. Meme function calling, memes outils, meme personnalite. La difference est juste le medium : terminal vs Matrix. C'est la puissance de l'architecture modulaire --- le changement de canal ne change rien a l'intelligence.
+
+### La memoire longue : apprendre de Matrix
+
+Chaque echange via Matrix nourrit la memoire d'Alfred. Le bridge accumule les messages par batch de 10, puis appelle `Learner.learn_from_messages/3` --- une nouvelle fonction qui cree un episode synthetique et applique le pipeline d'apprentissage complet (extraction de faits, resume Julia, detection de patterns, suggestions de culture, consolidation R).
+
+La memoire semantique a aussi gagne une fonction `consolidate/0` qui fusionne les faits redondants :
+
+```elixir
+def consolidate do
+  facts = all_facts()
+  groups = Enum.group_by(facts, fn f ->
+    (f["subject"] || "") |> String.downcase() |> String.trim()
+  end)
+  # Fusionne par subject : garde le plus confiant, merge les contenus
+end
+```
+
+### 217 tests : la conscience s'eveille
+
+```
+v1.0     (Consolidation) : 167 tests    ██████████████████████████████░░
+v2.0a    (Chat)          : 179 tests    ████████████████████████████████░
+v2.0b    (Tools)         : 186 tests    █████████████████████████████████
+v2.0c    (Daemon+Matrix) : 217 tests    ██████████████████████████████████████
+```
+
+De 167 a 217 : 50 nouveaux tests pour couvrir le function calling, les outils, la soul vivante, le daemon, le bridge Matrix, la consolidation memoire. Chaque test est un neurone de plus dans le systeme nerveux d'Alfred.
+
+### La composition d'Alfred
+
+A ce stade, Alfred est compose de 15 394 lignes de code reparties en six langages :
+
+| Langage | Organe | Lignes | % |
+|---------|--------|--------|---|
+| Elixir | Coeur | 11 519 | 74.8% |
+| Julia | Cerveau | 1 411 | 9.2% |
+| Zig | Os | 836 | 5.4% |
+| Ada | Bras | 711 | 4.6% |
+| R | Cortex | 543 | 3.5% |
+| Erlang | Muscles | 374 | 2.4% |
+
+Elixir est le coeur dominant --- trois quarts du code. Mais chaque organe, meme petit en lignes, joue un role critique. Les 374 lignes d'Erlang supervisent *tout* le systeme. Les 836 lignes de Zig protegent *tous* les secrets. C'est l'architecture organique dans toute sa puissance : pas de redondance, chaque langage a sa specialite.
+
+### L'installation en une commande
+
+Et pour rendre tout cela accessible, un script `install.sh` et une completion bash :
+
+```bash
+make install    # Compile tout, cree le symlink, installe la completion
+alfred <TAB>    # project task note vault chat daemon matrix soul...
+```
+
+Alfred s'installe en une commande et se complete au Tab. Le majordome est pret a servir.
+
+---
+
+
 
 Pour les chercheurs et les developpeurs qui souhaiteraient etudier l'architecture d'Alfred, voici la structure complete du projet :
 
@@ -1496,9 +1687,9 @@ Comme dirait Alfred lui-meme :
 
 ---
 
-*Document genere le 18 fevrier 2026.*
+*Document genere le 18 fevrier 2026. Mis a jour le 19 fevrier 2026.*
 *Co-ecrit par Claude (Anthropic) et l'architecture d'Alfred.*
-*142 tests. 6 langages. 1 majordome.*
+*217 tests. 6 langages. 15 394 lignes. 1 majordome.*
 
 ---
 
