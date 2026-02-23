@@ -13,7 +13,8 @@ defmodule Alfred.Application do
             start: {:alfred_scheduler, :start_link, []}
           },
           Alfred.Clock,
-          {Task.Supervisor, name: Alfred.TaskSupervisor}
+          {Task.Supervisor, name: Alfred.TaskSupervisor},
+          Alfred.Chat.SessionGuard
         ]
 
         Supervisor.start_link(children, strategy: :one_for_one, name: Alfred.Supervisor)

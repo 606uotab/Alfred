@@ -133,6 +133,9 @@ defmodule Alfred.CLI do
       ["arms" | arms_args] ->
         Alfred.Arms.Commands.handle(arms_args)
 
+      ["library" | lib_args] ->
+        Alfred.Library.Commands.handle(lib_args)
+
       ["soul" | soul_args] ->
         Alfred.Soul.Commands.handle(soul_args)
 
@@ -870,6 +873,12 @@ defmodule Alfred.CLI do
       alfred daemon stop                         Arrêter le daemon
       alfred health                              Diagnostic des organes
       alfred shell                               Mode interactif (REPL)
+
+      alfred library                              Livre en cours + progression
+      alfred library history                      Historique des livres lus
+      alfred library report                        Rapports de lecture
+      alfred library next                          Commencer un nouveau livre
+      alfred library read                          Lire la portion du jour
 
       alfred soul                                 Voir les traits de personnalité
       alfred soul init                            Inscrire l'âme (coffre creator)

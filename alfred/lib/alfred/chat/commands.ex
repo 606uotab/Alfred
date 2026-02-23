@@ -13,9 +13,13 @@ defmodule Alfred.Chat.Commands do
   Mode chat interactif — authentification directe, puis conversation.
   """
   def handle_chat do
+    # Récupérer une session interrompue (Ctrl+C)
+    recover_autosave()
+
     case authenticate() do
       {:ok, token, soul, culture} ->
         session = build_session("chat", soul, culture)
+        Alfred.Chat.SessionGuard.activate(session, token)
 
         Butler.say("Je suis prêt à converser, Monsieur.")
         IO.puts("  #{Colors.dim("Tapez 'quit' pour terminer.")}\n")
@@ -225,6 +229,30 @@ defmodule Alfred.Chat.Commands do
     Session.new(system_prompt, mode: mode)
   end
 
+  # -- Autosave recovery --
+
+  defp recover_autosave do
+    case Episodic.recover_autosave() do
+      %{"messages" => msgs, "message_count" => count} when is_list(msgs) and count > 0 ->
+        IO.puts("  #{Colors.dim("Session précédente récupérée (#{count} messages sauvegardés).")}")
+        Episodic.save_episode(%{
+          "started_at" => msgs |> List.first() |> Access.get("timestamp", DateTime.utc_now() |> DateTime.to_iso8601()),
+          "ended_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
+          "mode" => "chat_recovered",
+          "messages" => msgs,
+          "message_count" => count,
+          "summary" => nil,
+          "topics" => [],
+          "extracted_fact_ids" => []
+        })
+
+      _ ->
+        :ok
+    end
+  rescue
+    _ -> :ok
+  end
+
   # -- Vault authentication --
 
   defp authenticate_with_vault do
@@ -256,6 +284,8 @@ defmodule Alfred.Chat.Commands do
               IO.puts("")
               IO.puts("  🎩 #{Colors.bold("Alfred")} : #{response}")
               IO.puts("")
+              Episodic.autosave(session)
+              Alfred.Chat.SessionGuard.update(session)
               chat_loop(session, token, soul, culture)
 
             {:error, reason, session} ->
@@ -268,6 +298,8 @@ defmodule Alfred.Chat.Commands do
   end
 
   defp end_chat(session, token) do
+    Alfred.Chat.SessionGuard.deactivate()
+
     if Session.message_count(session) > 0 do
       Butler.say("Très bien. Ce fut un plaisir de converser avec vous.")
       save_conversation(session, token)

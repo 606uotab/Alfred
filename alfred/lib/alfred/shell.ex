@@ -25,6 +25,7 @@ defmodule Alfred.Shell do
     case credentials do
       {:ok, token, soul, culture} ->
         session = Chat.build_session("shell", soul, culture)
+        Alfred.Chat.SessionGuard.activate(session, token)
         IO.puts("  #{Colors.green("✓")} Connexion Mistral établie. Vous pouvez me parler, Monsieur.")
         IO.puts("")
         loop(%{token: token, soul: soul, culture: culture, session: session})
@@ -118,6 +119,8 @@ defmodule Alfred.Shell do
         IO.puts("")
         IO.puts("  🎩 #{Colors.bold("Alfred")} : #{response}")
         IO.puts("")
+        Alfred.Memory.Episodic.autosave(session)
+        Alfred.Chat.SessionGuard.update(session)
         %{state | session: session}
 
       {:error, reason, session} ->
@@ -142,6 +145,8 @@ defmodule Alfred.Shell do
   end
 
   defp goodbye(state) do
+    Alfred.Chat.SessionGuard.deactivate()
+
     if state && Alfred.Chat.Session.message_count(state.session) > 0 do
       Chat.save_conversation(state.session, state.token)
     end

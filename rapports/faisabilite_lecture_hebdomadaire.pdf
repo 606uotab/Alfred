@@ -1,0 +1,275 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R 5 0 R 7 0 R 9 0 R 11 0 R] /Count 5 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 13 0 R /F2 14 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 2829 >>
+stream
+BT /F2 16 Tf 50 772 Td (Rapport de faisabilite - Alfred Lecteur Hebdomadaire) Tj ET
+BT /F1 10 Tf 50 738 Td (Date : 23 fevrier 2026) Tj ET
+BT /F1 10 Tf 50 724 Td (Projet : Alfred - Majordome Numerique) Tj ET
+BT /F1 10 Tf 50 710 Td (Phase : Cerveau \(Julia\) / Coeur \(Elixir\)) Tj ET
+0.7 0.7 0.7 RG 0.5 w 50 683 m 545 683 l S 0 0 0 RG
+BT /F2 13 Tf 50 652 Td (1. Resume du besoin) Tj ET
+BT /F1 10 Tf 50 623 Td (Alfred doit lire 1 livre par semaine selon ce cycle :) Tj ET
+BT /F1 10 Tf 65 609 Td (? Jours 1-6 : lecture repartie \(pages/jour calculees\)) Tj ET
+BT /F1 10 Tf 65 595 Td (? Jour 7 : rapport de lecture a Monsieur) Tj ET
+BT /F1 10 Tf 65 581 Td (? Chaque jour : integration des valeurs + jugement critique) Tj ET
+BT /F1 10 Tf 65 567 Td (? Memoire cumulative : chaque jour, Alfred se souvient de ce qu'il a lu + ses jugements) Tj ET
+BT /F1 10 Tf 65 553 Td (? Fin de lecture : 3 jugements/valeurs cles + 3 grands axes/idees du livre) Tj ET
+0.7 0.7 0.7 RG 0.5 w 50 526 m 545 526 l S 0 0 0 RG
+BT /F2 13 Tf 50 495 Td (2. Source de livres : Project Gutenberg via Gutendex) Tj ET
+BT /F2 11 Tf 50 462 Td (Pourquoi Gutenberg ?) Tj ET
+BT /F1 10 Tf 65 445 Td (? 76 000+ livres du domaine public) Tj ET
+BT /F1 10 Tf 65 431 Td (? API REST JSON \(Gutendex\) sans authentification) Tj ET
+BT /F1 10 Tf 65 417 Td (? Format texte brut UTF-8 \(le plus simple a traiter\)) Tj ET
+BT /F1 10 Tf 65 403 Td (? Livres en francais disponibles \(filtre languages=fr\)) Tj ET
+BT /F1 10 Tf 65 389 Td (? Gratuit, legal, illimite) Tj ET
+BT /F2 11 Tf 50 363 Td (Workflow de telechargement) Tj ET
+BT /F1 8 Tf 70 346 Td (1. Recherche : GET https://gutendex.com/books?languages=fr&sort=popular) Tj ET
+BT /F1 8 Tf 70 334 Td (2. Selection aleatoire ou par genre/theme) Tj ET
+BT /F1 8 Tf 70 322 Td (3. Telechargement : GET https://www.gutenberg.org/ebooks/{id}.txt.utf-8) Tj ET
+BT /F1 8 Tf 70 310 Td (4. Stockage : ~/.alfred/data/library/{id}_{titre}.txt) Tj ET
+BT /F2 11 Tf 50 286 Td (Formats supportes) Tj ET
+BT /F1 9 Tf 60 269 Td (Format  |  Outil extraction  |  Dependance) Tj ET
+BT /F1 9 Tf 60 256 Td (.txt  |  File.read \(Elixir\)  |  Aucune) Tj ET
+BT /F1 9 Tf 60 243 Td (.epub  |  :zip \(Erlang stdlib\) + Regex  |  Aucune) Tj ET
+BT /F1 9 Tf 60 230 Td (.pdf  |  pdftotext \(poppler-utils\)  |  Deja installe) Tj ET
+0.7 0.7 0.7 RG 0.5 w 50 204 m 545 204 l S 0 0 0 RG
+BT /F2 13 Tf 50 173 Td (3. Architecture technique) Tj ET
+BT /F2 11 Tf 50 140 Td (3.1 Modules a creer) Tj ET
+BT /F1 8 Tf 70 115 Td (lib/alfred/library/) Tj ET
+BT /F1 8 Tf 70 103 Td (downloader.ex     - Telechargement depuis Gutenberg) Tj ET
+BT /F1 8 Tf 70 91 Td (reader.ex         - Extraction texte \(txt/epub/pdf\)) Tj ET
+BT /F1 8 Tf 70 79 Td (paginator.ex      - Decoupage en pages \(~250 mots\)) Tj ET
+BT /F1 8 Tf 70 67 Td (scheduler.ex      - Planning de lecture \(pages/jour\)) Tj ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 6 0 R /Resources << /Font << /F1 13 0 R /F2 14 0 R >> >> >>
+endobj
+6 0 obj
+<< /Length 3360 >>
+stream
+BT /F1 8 Tf 70 782 Td (analyzer.ex       - Analyse Mistral \(jugements, valeurs\)) Tj ET
+BT /F1 8 Tf 70 770 Td (memory.ex         - Memoire de lecture persistante) Tj ET
+BT /F1 8 Tf 70 758 Td (reporter.ex       - Generation du rapport J7) Tj ET
+BT /F2 11 Tf 50 734 Td (3.2 Cycle de lecture \(7 jours\)) Tj ET
+BT /F1 8 Tf 70 709 Td (Jour 0 \(dimanche soir\) :) Tj ET
+BT /F1 8 Tf 70 697 Td (- Telecharger un nouveau livre) Tj ET
+BT /F1 8 Tf 70 685 Td (- Compter les pages) Tj ET
+BT /F1 8 Tf 70 673 Td (- Calculer pages_par_jour = ceil\(total_pages / 6\)) Tj ET
+BT /F1 8 Tf 70 661 Td (- Stocker le planning dans reading_state.json) Tj ET
+BT /F1 8 Tf 70 649 Td (Jours 1-6 \(quotidien, declenche par daemon\) :) Tj ET
+BT /F1 8 Tf 70 637 Td (- Lire les pages du jour) Tj ET
+BT /F1 8 Tf 70 625 Td (- Envoyer a Mistral pour analyse/jugement) Tj ET
+BT /F1 8 Tf 70 613 Td (- Stocker jugements + resume du jour) Tj ET
+BT /F1 8 Tf 70 601 Td (- Accumuler la memoire de lecture) Tj ET
+BT /F1 8 Tf 70 589 Td (Jour 7 \(rapport\) :) Tj ET
+BT /F1 8 Tf 70 577 Td (- Synthetiser les 6 jours de lecture) Tj ET
+BT /F1 8 Tf 70 565 Td (- Selectionner 3 jugements/valeurs cles) Tj ET
+BT /F1 8 Tf 70 553 Td (- Identifier 3 grands axes/idees) Tj ET
+BT /F1 8 Tf 70 541 Td (- Generer rapport pour Monsieur) Tj ET
+BT /F1 8 Tf 70 529 Td (- Notifier via SimpleX) Tj ET
+BT /F2 11 Tf 50 505 Td (3.3 Analyse quotidienne \(Mistral\)) Tj ET
+BT /F1 10 Tf 50 480 Td (Chaque jour, Alfred envoie le texte du jour a Mistral avec ce prompt :) Tj ET
+BT /F1 8 Tf 70 458 Td (Tu es Alfred, majordome numerique. Tu lis un livre pour ton maitre.) Tj ET
+BT /F1 8 Tf 70 446 Td (Livre : {titre} par {auteur}) Tj ET
+BT /F1 8 Tf 70 434 Td (Pages lues aujourd'hui : {pages_debut} a {pages_fin}) Tj ET
+BT /F1 8 Tf 70 422 Td (Ce que tu as deja lu et retenu : {memoire_jours_precedents}) Tj ET
+BT /F1 8 Tf 70 410 Td (Texte du jour :) Tj ET
+BT /F1 8 Tf 70 398 Td ({texte}) Tj ET
+BT /F1 8 Tf 70 386 Td (Analyse ce passage. Pour chaque idee importante, donne ton jugement :) Tj ET
+BT /F1 8 Tf 70 374 Td (- Bien / Mal) Tj ET
+BT /F1 8 Tf 70 362 Td (- Interessant / Passionnant / Banal) Tj ET
+BT /F1 8 Tf 70 350 Td (- Devrait etre applique dans la vie reelle) Tj ET
+BT /F1 8 Tf 70 338 Td (- Utopique \(beau mais irreal\)) Tj ET
+BT /F1 8 Tf 70 326 Td (- C'est juste une fiction) Tj ET
+BT /F1 8 Tf 70 314 Td (- C'est une fiction mais ca serait bien que ca existe) Tj ET
+BT /F1 8 Tf 70 302 Td (- Pertinent pour Monsieur) Tj ET
+BT /F1 8 Tf 70 290 Td (Retourne un JSON :) Tj ET
+BT /F1 8 Tf 70 278 Td ({) Tj ET
+BT /F1 8 Tf 70 266 Td ("resume": "resume du passage \(3-5 phrases\)",) Tj ET
+BT /F1 8 Tf 70 254 Td ("jugements": [) Tj ET
+BT /F1 8 Tf 70 242 Td ({"idee": "...", "jugement": "...", "force": 0.0-1.0}) Tj ET
+BT /F1 8 Tf 70 230 Td (],) Tj ET
+BT /F1 8 Tf 70 218 Td ("valeurs_detectees": ["valeur1", "valeur2"],) Tj ET
+BT /F1 8 Tf 70 206 Td ("axes_emergents": ["axe1"]) Tj ET
+BT /F1 8 Tf 70 194 Td (}) Tj ET
+BT /F2 11 Tf 50 170 Td (3.4 Memoire de lecture) Tj ET
+BT /F1 10 Tf 50 145 Td (Fichier : `~/.alfred/data/library/current_reading.json`) Tj ET
+BT /F1 8 Tf 70 123 Td ({) Tj ET
+BT /F1 8 Tf 70 111 Td ("book": {) Tj ET
+BT /F1 8 Tf 70 99 Td ("id": 1342,) Tj ET
+BT /F1 8 Tf 70 87 Td ("title": "Orgueil et Prejuges",) Tj ET
+BT /F1 8 Tf 70 75 Td ("author": "Jane Austen",) Tj ET
+BT /F1 8 Tf 70 63 Td ("total_pages": 284,) Tj ET
+endstream
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 8 0 R /Resources << /Font << /F1 13 0 R /F2 14 0 R >> >> >>
+endobj
+8 0 obj
+<< /Length 2831 >>
+stream
+BT /F1 8 Tf 70 782 Td ("pages_per_day": 48,) Tj ET
+BT /F1 8 Tf 70 770 Td ("started_at": "2026-02-24",) Tj ET
+BT /F1 8 Tf 70 758 Td ("source": "gutenberg") Tj ET
+BT /F1 8 Tf 70 746 Td (},) Tj ET
+BT /F1 8 Tf 70 734 Td ("progress": {) Tj ET
+BT /F1 8 Tf 70 722 Td ("day": 3,) Tj ET
+BT /F1 8 Tf 70 710 Td ("pages_read": 144,) Tj ET
+BT /F1 8 Tf 70 698 Td ("pages_total": 284) Tj ET
+BT /F1 8 Tf 70 686 Td (},) Tj ET
+BT /F1 8 Tf 70 674 Td ("daily_logs": [) Tj ET
+BT /F1 8 Tf 70 662 Td ({) Tj ET
+BT /F1 8 Tf 70 650 Td ("day": 1,) Tj ET
+BT /F1 8 Tf 70 638 Td ("pages": "1-48",) Tj ET
+BT /F1 8 Tf 70 626 Td ("resume": "...",) Tj ET
+BT /F1 8 Tf 70 614 Td ("jugements": [...],) Tj ET
+BT /F1 8 Tf 70 602 Td ("valeurs": [...],) Tj ET
+BT /F1 8 Tf 70 590 Td ("axes": [...]) Tj ET
+BT /F1 8 Tf 70 578 Td (}) Tj ET
+BT /F1 8 Tf 70 566 Td (],) Tj ET
+BT /F1 8 Tf 70 554 Td ("accumulated": {) Tj ET
+BT /F1 8 Tf 70 542 Td ("all_jugements": [...],) Tj ET
+BT /F1 8 Tf 70 530 Td ("all_valeurs": [...],) Tj ET
+BT /F1 8 Tf 70 518 Td ("all_axes": [...],) Tj ET
+BT /F1 8 Tf 70 506 Td ("running_summary": "Ce que j'ai retenu jusqu'ici...") Tj ET
+BT /F1 8 Tf 70 494 Td (}) Tj ET
+BT /F1 8 Tf 70 482 Td (}) Tj ET
+BT /F2 11 Tf 50 458 Td (3.5 Rapport final \(Jour 7\)) Tj ET
+BT /F1 10 Tf 50 433 Td (Mistral recoit l'ensemble des notes accumulees et genere :) Tj ET
+BT /F1 10 Tf 65 411 Td (1. **3 jugements/valeurs cles** -- les plus marquants, les plus forts) Tj ET
+BT /F1 10 Tf 65 397 Td (2. **3 grands axes/idees** -- les themes centraux du livre) Tj ET
+BT /F1 10 Tf 65 383 Td (3. **Resume general** -- 10-15 phrases) Tj ET
+BT /F1 10 Tf 65 369 Td (4. **Recommandation** -- Alfred dit s'il recommande ce livre a Monsieur) Tj ET
+BT /F1 10 Tf 50 347 Td (Le rapport est :) Tj ET
+BT /F1 10 Tf 65 333 Td (? Envoye via SimpleX) Tj ET
+BT /F1 10 Tf 65 319 Td (? Stocke dans `~/.alfred/data/library/reports/`) Tj ET
+BT /F1 10 Tf 65 305 Td (? Les 3 valeurs deviennent des convictions \(systeme existant\)) Tj ET
+BT /F2 11 Tf 50 279 Td (3.6 Integration daemon) Tj ET
+BT /F1 8 Tf 70 254 Td (Nouveau slot daemon \(1x/jour a 6h du matin = check #360 offset\) :) Tj ET
+BT /F1 8 Tf 70 242 Td (- Si jour 0 : telecharger nouveau livre) Tj ET
+BT /F1 8 Tf 70 230 Td (- Si jours 1-6 : lire portion + analyser) Tj ET
+BT /F1 8 Tf 70 218 Td (- Si jour 7 : generer rapport) Tj ET
+0.7 0.7 0.7 RG 0.5 w 50 193 m 545 193 l S 0 0 0 RG
+BT /F2 13 Tf 50 162 Td (4. Estimation des couts API Mistral) Tj ET
+BT /F2 11 Tf 50 129 Td (Par livre \(semaine\)) Tj ET
+BT /F1 9 Tf 60 112 Td (Operation  |  Tokens entree  |  Tokens sortie  |  Cout) Tj ET
+BT /F1 9 Tf 60 99 Td (Analyse J1-J6 \(6x\)  |  ~20K x 6 = 120K  |  ~2K x 6 = 12K  |  ~0.016) Tj ET
+BT /F1 9 Tf 60 86 Td (Rapport J7  |  ~10K  |  ~4K  |  ~0.002) Tj ET
+BT /F1 9 Tf 60 73 Td (**Total/livre**  |  **~130K**  |  **~16K**  |  **~0.018 EUR**) Tj ET
+endstream
+endobj
+9 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 10 0 R /Resources << /Font << /F1 13 0 R /F2 14 0 R >> >> >>
+endobj
+10 0 obj
+<< /Length 2773 >>
+stream
+BT /F1 10 Tf 50 782 Td (Cout annuel : ~52 livres x 0.018 EUR = ~0.94 EUR/an) Tj ET
+BT /F2 11 Tf 50 756 Td (Contrainte : taille des chunks) Tj ET
+BT /F1 10 Tf 65 739 Td (? Mistral Small : 128K tokens de contexte) Tj ET
+BT /F1 10 Tf 65 725 Td (? Un livre de 300 pages = ~97K tokens \(texte seul\)) Tj ET
+BT /F1 10 Tf 65 711 Td (? Strategie : envoyer par journee de lecture \(~50 pages = ~16K tokens\)) Tj ET
+BT /F1 10 Tf 65 697 Td (? Largement dans les limites) Tj ET
+0.7 0.7 0.7 RG 0.5 w 50 670 m 545 670 l S 0 0 0 RG
+BT /F2 13 Tf 50 639 Td (5. Estimation du volume de code) Tj ET
+BT /F1 9 Tf 60 610 Td (Module  |  Lignes estimees) Tj ET
+BT /F1 9 Tf 60 597 Td (downloader.ex  |  ~80) Tj ET
+BT /F1 9 Tf 60 584 Td (reader.ex  |  ~120 \(txt + epub + pdf\)) Tj ET
+BT /F1 9 Tf 60 571 Td (paginator.ex  |  ~40) Tj ET
+BT /F1 9 Tf 60 558 Td (scheduler.ex  |  ~100) Tj ET
+BT /F1 9 Tf 60 545 Td (analyzer.ex  |  ~150) Tj ET
+BT /F1 9 Tf 60 532 Td (memory.ex  |  ~100) Tj ET
+BT /F1 9 Tf 60 519 Td (reporter.ex  |  ~120) Tj ET
+BT /F1 9 Tf 60 506 Td (Tests  |  ~200) Tj ET
+BT /F1 9 Tf 60 493 Td (Modifs daemon  |  ~20) Tj ET
+BT /F1 9 Tf 60 480 Td (**Total**  |  **~930 lignes**) Tj ET
+0.7 0.7 0.7 RG 0.5 w 50 454 m 545 454 l S 0 0 0 RG
+BT /F2 13 Tf 50 423 Td (6. Faisabilite) Tj ET
+BT /F2 11 Tf 50 390 Td (FAISABLE a 100%) Tj ET
+BT /F1 9 Tf 60 365 Td (Critere  |  Statut  |  Detail) Tj ET
+BT /F1 9 Tf 60 352 Td (Source de livres  |  OK  |  Gutenberg API, gratuit, 76K+ livres) Tj ET
+BT /F1 9 Tf 60 339 Td (Lecture txt/epub  |  OK  |  Zero dependances \(Erlang :zip\)) Tj ET
+BT /F1 9 Tf 60 326 Td (Lecture PDF  |  OK  |  pdftotext deja installe) Tj ET
+BT /F1 9 Tf 60 313 Td (Analyse IA  |  OK  |  Mistral Small, 128K contexte) Tj ET
+BT /F1 9 Tf 60 300 Td (Cout API  |  OK  |  < 1 EUR/an) Tj ET
+BT /F1 9 Tf 60 287 Td (Memoire lecture  |  OK  |  JSON local \(pattern existant\)) Tj ET
+BT /F1 9 Tf 60 274 Td (Integration daemon  |  OK  |  Slot quotidien) Tj ET
+BT /F1 9 Tf 60 261 Td (Rapport SimpleX  |  OK  |  Bridge existant) Tj ET
+BT /F1 9 Tf 60 248 Td (Convictions  |  OK  |  Systeme deja en place) Tj ET
+BT /F2 11 Tf 50 223 Td (Points d'attention) Tj ET
+BT /F1 10 Tf 65 206 Td (1. Livres scannes \(PDF image\) : pdftotext ne peut pas les lire -> privilegier txt/epub) Tj ET
+BT /F1 10 Tf 65 192 Td (2. Qualite OCR Gutenberg : certains vieux textes ont des artefacts) Tj ET
+BT /F1 10 Tf 65 178 Td (3. Livres tres longs \(>500 pages\) : augmenter a 7-8 jours ou sauter) Tj ET
+BT /F1 10 Tf 65 164 Td (4. Choix du livre : automatique \(populaire\) ou sur demande de Monsieur ?) Tj ET
+0.7 0.7 0.7 RG 0.5 w 50 137 m 545 137 l S 0 0 0 RG
+BT /F2 13 Tf 50 106 Td (7. Questions ouvertes) Tj ET
+BT /F1 10 Tf 65 77 Td (1. **Langue des livres** : uniquement francais ? Ou aussi anglais/autres ?) Tj ET
+endstream
+endobj
+11 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 12 0 R /Resources << /Font << /F1 13 0 R /F2 14 0 R >> >> >>
+endobj
+12 0 obj
+<< /Length 1663 >>
+stream
+BT /F1 10 Tf 65 782 Td (2. **Genre/theme** : preference ? \(philosophie, science-fiction, classiques, economie,) Tj ET
+BT /F1 10 Tf 65 768 Td (   technique...\)) Tj ET
+BT /F1 10 Tf 65 754 Td (3. **Choix du livre** : Alfred choisit seul \(aleatoire/populaire\) ou Monsieur suggere ?) Tj ET
+BT /F1 10 Tf 65 740 Td (4. **Rapport** : format souhaite ? \(message SimpleX, fichier PDF, les deux ?\)) Tj ET
+BT /F1 10 Tf 65 726 Td (5. **Convictions** : les valeurs extraites des livres doivent-elles devenir des) Tj ET
+BT /F1 10 Tf 65 712 Td (   convictions d'Alfred ?) Tj ET
+BT /F1 10 Tf 65 698 Td (6. **Bibliotheque locale** : garder les livres telecharges ? Ou supprimer apres lecture) Tj ET
+BT /F1 10 Tf 65 684 Td (   ?) Tj ET
+BT /F1 10 Tf 65 670 Td (7. **Historique** : Alfred doit-il se souvenir de TOUS les livres lus, ou juste les 3) Tj ET
+BT /F1 10 Tf 65 656 Td (   valeurs + 3 axes ?) Tj ET
+0.7 0.7 0.7 RG 0.5 w 50 629 m 545 629 l S 0 0 0 RG
+BT /F2 13 Tf 50 598 Td (8. Planning d'implementation) Tj ET
+BT /F1 9 Tf 60 569 Td (Etape  |  Duree estimee) Tj ET
+BT /F1 9 Tf 60 556 Td (1. Downloader + Reader \(txt/epub\)  |  Premiere session) Tj ET
+BT /F1 9 Tf 60 543 Td (2. Paginator + Scheduler  |  Meme session) Tj ET
+BT /F1 9 Tf 60 530 Td (3. Analyzer \(prompts Mistral\)  |  Deuxieme session) Tj ET
+BT /F1 9 Tf 60 517 Td (4. Memory + Reporter  |  Meme session) Tj ET
+BT /F1 9 Tf 60 504 Td (5. Integration daemon + tests  |  Troisieme session) Tj ET
+BT /F1 9 Tf 60 491 Td (6. Test reel avec 1er livre  |  Validation) Tj ET
+0.7 0.7 0.7 RG 0.5 w 50 465 m 545 465 l S 0 0 0 RG
+BT /F1 10 Tf 50 442 Td (*Rapport genere par Claude Opus 4.6 pour le projet Alfred*) Tj ET
+endstream
+endobj
+13 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+14 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+xref
+0 15
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000140 00000 n 
+0000000278 00000 n 
+0000003159 00000 n 
+0000003297 00000 n 
+0000006709 00000 n 
+0000006847 00000 n 
+0000009730 00000 n 
+0000009869 00000 n 
+0000012695 00000 n 
+0000012835 00000 n 
+0000014551 00000 n 
+0000014649 00000 n 
+trailer
+<< /Size 15 /Root 1 0 R >>
+startxref
+14752
+%%EOF

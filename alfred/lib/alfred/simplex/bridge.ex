@@ -75,6 +75,9 @@ defmodule Alfred.Simplex.Bridge do
 
   @impl true
   def init(config) do
+    # Trap exits pour que terminate/2 soit appelé sur Ctrl+C
+    Process.flag(:trap_exit, true)
+
     {token, soul, culture} =
       case Commands.authenticate() do
         {:ok, t, s, c} -> {t, s, c}
@@ -232,6 +235,27 @@ defmodule Alfred.Simplex.Bridge do
 
   @impl true
   def terminate(_reason, state) do
+    # Flush pending_learn avant de mourir (sauvegarde Ctrl+C)
+    if is_list(state.pending_learn) and state.pending_learn != [] and state.token do
+      try do
+        # Sauvegarde rapide en épisode brut (pas de pipeline Mistral complet)
+        now = DateTime.utc_now() |> DateTime.to_iso8601()
+        episode = %{
+          "started_at" => now,
+          "ended_at" => now,
+          "mode" => "simplex_flush",
+          "messages" => state.pending_learn,
+          "message_count" => length(state.pending_learn),
+          "summary" => nil,
+          "topics" => [],
+          "extracted_fact_ids" => []
+        }
+        Alfred.Memory.Episodic.save_episode(episode)
+      catch
+        _, _ -> :ok
+      end
+    end
+
     if state.socket do
       try do
         WebSocket.close(state.socket)

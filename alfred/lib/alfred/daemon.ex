@@ -111,6 +111,17 @@ defmodule Alfred.Daemon do
       end)
     end
 
+    # 6. Lecture hebdomadaire (1x/jour = 1440 checks, offset 60 pour ~1h après démarrage)
+    if count > 0 and rem(count, 1440) == 60 do
+      safe_run(fn ->
+        case Alfred.Chat.Commands.authenticate() do
+          {:ok, token, _, _} ->
+            Alfred.Library.Scheduler.tick(token)
+          _ -> :ok
+        end
+      end)
+    end
+
     %{state |
       check_count: count,
       last_check: now

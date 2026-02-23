@@ -12,6 +12,8 @@ defmodule Alfred.Memory.Episodic do
     Storage.ensure_subdir!(@episodes_dir)
   end
 
+  @autosave_file "_autosave.json"
+
   @doc """
   Sauvegarde un épisode de conversation.
   """
@@ -27,7 +29,62 @@ defmodule Alfred.Memory.Episodic do
 
     filename = Path.join(@episodes_dir, "#{id}.json")
     Storage.write(filename, data)
+
+    # Supprimer l'autosave — la session est sauvegardée proprement
+    clear_autosave()
+
     {:ok, data}
+  end
+
+  @doc """
+  Sauvegarde incrémentale — écrase _autosave.json à chaque échange.
+  Léger : un seul fichier écrasé, pas de croissance mémoire.
+  """
+  def autosave(session) do
+    ensure_dir!()
+
+    episode = Alfred.Chat.Session.to_episode(session)
+    data = Map.put(episode, "autosaved_at", DateTime.utc_now() |> DateTime.to_iso8601())
+    path = Path.join([Alfred.data_dir(), @episodes_dir, @autosave_file])
+    File.write!(path, Jason.encode!(data, pretty: true))
+    :ok
+  rescue
+    _ -> :ok
+  end
+
+  @doc """
+  Récupère une session autosaved (après crash/Ctrl+C).
+  Retourne l'épisode si trouvé, nil sinon.
+  """
+  def recover_autosave do
+    path = Path.join([Alfred.data_dir(), @episodes_dir, @autosave_file])
+
+    if File.exists?(path) do
+      case File.read(path) do
+        {:ok, content} ->
+          case Jason.decode(content) do
+            {:ok, data} when is_map(data) and map_size(data) > 0 ->
+              data
+
+            _ ->
+              nil
+          end
+
+        _ ->
+          nil
+      end
+    else
+      nil
+    end
+  end
+
+  @doc """
+  Supprime le fichier autosave.
+  """
+  def clear_autosave do
+    path = Path.join([Alfred.data_dir(), @episodes_dir, @autosave_file])
+    File.rm(path)
+    :ok
   end
 
   @doc """
@@ -39,7 +96,7 @@ defmodule Alfred.Memory.Episodic do
     if File.exists?(dir) do
       dir
       |> File.ls!()
-      |> Enum.filter(&String.ends_with?(&1, ".json"))
+      |> Enum.filter(fn f -> String.ends_with?(f, ".json") and f != @autosave_file end)
       |> Enum.sort(:desc)
       |> Enum.map(fn filename ->
         path = Path.join(dir, filename)
@@ -99,7 +156,7 @@ defmodule Alfred.Memory.Episodic do
     if File.exists?(dir) do
       dir
       |> File.ls!()
-      |> Enum.count(&String.ends_with?(&1, ".json"))
+      |> Enum.count(fn f -> String.ends_with?(f, ".json") and f != @autosave_file end)
     else
       0
     end
