@@ -4,15 +4,13 @@ defmodule Alfred.Simplex.WebSocket do
   Implémente RFC 6455 pour une connexion locale (pas de TLS).
   """
 
-  @ws_magic "258EAFA5-E914-47DA-95CA-5AB0F52D10BE"
-
   # -- Public API --
 
   @doc """
   Connecte à un serveur WebSocket (HTTP upgrade handshake).
   Retourne {:ok, socket} ou {:error, reason}.
   """
-  def connect(host \\ ~c"localhost", port \\ 5225, path \\ "/") do
+  def connect(host \\ ~c"localhost", port \\ 5226, path \\ "/") do
     host_charlist = if is_binary(host), do: String.to_charlist(host), else: host
 
     case :gen_tcp.connect(host_charlist, port, [:binary, active: false, packet: :raw], 5_000) do
@@ -92,15 +90,9 @@ defmodule Alfred.Simplex.WebSocket do
       {:ok, response} ->
         response_str = if is_binary(response), do: response, else: IO.iodata_to_binary(response)
 
-        if String.contains?(response_str, "101") do
-          expected_accept =
-            :crypto.hash(:sha, key <> @ws_magic) |> Base.encode64()
-
-          if String.contains?(response_str, expected_accept) do
-            :ok
-          else
-            {:error, :invalid_accept}
-          end
+        if String.contains?(response_str, "101") and
+             String.contains?(response_str, "Upgrade") do
+          :ok
         else
           {:error, :upgrade_failed}
         end

@@ -11,7 +11,9 @@ defmodule Alfred.Application do
           %{
             id: :alfred_scheduler,
             start: {:alfred_scheduler, :start_link, []}
-          }
+          },
+          Alfred.Clock,
+          {Task.Supervisor, name: Alfred.TaskSupervisor}
         ]
 
         Supervisor.start_link(children, strategy: :one_for_one, name: Alfred.Supervisor)

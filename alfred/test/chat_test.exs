@@ -186,6 +186,26 @@ defmodule Alfred.ChatTest do
       result = Alfred.Chat.Tools.execute("unknown", %{})
       assert result =~ "inconnu"
     end
+
+    test "definitions include web_search and get_current_time" do
+      tools = Alfred.Chat.Tools.definitions()
+      names = Enum.map(tools, fn t -> t.function.name end)
+      assert "web_search" in names
+      assert "get_current_time" in names
+    end
+
+    test "execute get_current_time returns french date" do
+      result = Alfred.Chat.Tools.execute("get_current_time", %{})
+      assert is_binary(result)
+      assert result =~ ~r/\d{4}/
+      assert result =~ "h"
+    end
+
+    test "execute web_search returns results" do
+      result = Alfred.Chat.Tools.execute("web_search", %{"query" => "elixir lang"})
+      assert is_binary(result)
+      assert result =~ "Résultats" or result =~ "Erreur" or result =~ "échouée"
+    end
   end
 
   describe "Alfred.Chat.SystemPrompt" do

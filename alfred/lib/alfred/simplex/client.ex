@@ -7,7 +7,7 @@ defmodule Alfred.Simplex.Client do
   alias Alfred.Simplex.WebSocket
 
   @doc "Connecte au serveur WebSocket SimpleX Chat."
-  def connect(host \\ ~c"localhost", port \\ 5225) do
+  def connect(host \\ ~c"localhost", port \\ 5226) do
     WebSocket.connect(host, port, "/")
   end
 
@@ -50,11 +50,11 @@ defmodule Alfred.Simplex.Client do
   """
   def parse_response(json_text) do
     case Jason.decode(json_text) do
-      {:ok, %{"corrId" => nil, "resp" => resp}} ->
-        {:event, resp}
-
-      {:ok, %{"corrId" => corr_id, "resp" => resp}} ->
+      {:ok, %{"corrId" => corr_id, "resp" => resp}} when is_binary(corr_id) ->
         {:response, corr_id, resp}
+
+      {:ok, %{"resp" => resp}} ->
+        {:event, resp}
 
       {:ok, other} ->
         {:unknown, other}

@@ -8,19 +8,35 @@ defmodule Alfred.Memory.Extractor do
   alias Alfred.Memory.Semantic
 
   @extraction_prompt """
-  Analyse la conversation suivante entre un majordome (Alfred) et son maître.
-  Extrais les faits importants à retenir sur le maître.
+  Tu es la mémoire d'Alfred, un majordome numérique dévoué. Ton rôle est de retenir TOUT ce qui concerne le maître.
 
-  Retourne UNIQUEMENT un tableau JSON (pas de texte autour) avec ce format :
-  [{"category": "...", "subject": "...", "content": "...", "confidence": 0.8}]
+  Analyse cette conversation et extrais CHAQUE information personnelle, même implicite.
 
-  Catégories possibles : preferences, knowledge, project_context, behavioral_patterns, personal_info, technical_context.
+  PRIORITÉ MAXIMALE — retenir ces informations :
+  - Identité : nom, prénom, surnom, âge, date de naissance
+  - Localisation : ville, pays, adresse, lieux fréquentés, fuseau horaire
+  - Vie quotidienne : horaires, trajets, moyens de transport, habitudes
+  - Travail : métier, employeur, collègues, projets professionnels
+  - Relations : famille, amis, animaux, contacts mentionnés
+  - Goûts : nourriture, musique, sports, équipes, loisirs, passions
+  - Santé : allergies, régime, contraintes
+  - Projets et engagements : rendez-vous, deadlines, voyages prévus
+  - Contexte technique : langages, outils, stack, préférences de dev
 
-  Le "content" doit être une phrase concise en français décrivant le fait.
-  Le "subject" est un mot-clé court.
-  La "confidence" est entre 0.0 et 1.0.
+  IMPORTANT :
+  - Extrais les faits CONCRETS, pas les observations vagues comme "le maître pose des questions".
+  - Si le maître dit "j'ai un train à 18h" → retenir "Le maître a un train à 18h" (personal_info, confidence 0.9).
+  - Si le maître mentionne "Liverpool" dans un contexte personnel → retenir le lien (voyage, équipe sportive, etc.).
+  - Déduis les informations implicites : s'il demande l'heure à Liverpool, il y est peut-être ou compte y aller.
+  - Préfère la catégorie "personal_info" pour tout ce qui concerne directement le maître.
+  - N'extrais PAS : "le maître demande l'heure", "le maître fait une recherche" — ce sont des actions, pas des faits.
 
-  Si aucun fait intéressant, retourne [].
+  Retourne UNIQUEMENT un tableau JSON :
+  [{"category": "...", "subject": "mot-clé", "content": "phrase concise", "confidence": 0.9}]
+
+  Catégories : personal_info, preferences, knowledge, project_context, behavioral_patterns, technical_context.
+
+  Si vraiment aucun fait personnel, retourne [].
 
   Conversation :
   """
@@ -109,27 +125,52 @@ defmodule Alfred.Memory.Extractor do
 
   defp detect_simple_facts(text) do
     facts = []
+    content = String.slice(text, 0, 200)
 
-    # Détection de préférences ("je préfère", "j'aime", "je n'aime pas")
+    # Préférences ("je préfère", "j'aime", "je n'aime pas")
     facts =
-      if Regex.match?(~r/je (préfère|prefere|aime|adore|déteste|deteste)/i, text) do
-        [%{"category" => "preferences", "subject" => "preference", "content" => String.slice(text, 0, 200), "confidence" => 0.6, "source" => "local_extraction"} | facts]
+      if Regex.match?(~r/j[e']?\s*(préfère|prefere|aime|adore|déteste|deteste|kiffe)/i, text) do
+        [%{"category" => "preferences", "subject" => "preference", "content" => content, "confidence" => 0.7, "source" => "local_extraction"} | facts]
       else
         facts
       end
 
-    # Détection d'informations personnelles ("je suis", "je travaille", "mon")
+    # Informations personnelles ("je suis", "je travaille", "j'habite", "mon/ma")
     facts =
-      if Regex.match?(~r/je (suis|travaille|fais|habite|vis)/i, text) do
-        [%{"category" => "personal_info", "subject" => "info", "content" => String.slice(text, 0, 200), "confidence" => 0.5, "source" => "local_extraction"} | facts]
+      if Regex.match?(~r/je (suis|travaille|fais|habite|vis|pars|rentre|reviens|vais|serai)/i, text) do
+        [%{"category" => "personal_info", "subject" => "info", "content" => content, "confidence" => 0.7, "source" => "local_extraction"} | facts]
       else
         facts
       end
 
-    # Détection de contexte projet ("projet", "application", "système")
+    # Engagements et horaires ("j'ai un train", "rendez-vous", "réunion", heure mentionnée)
     facts =
-      if Regex.match?(~r/(projet|application|système|systeme|architecture)/i, text) && String.length(text) > 20 do
-        [%{"category" => "project_context", "subject" => "project", "content" => String.slice(text, 0, 200), "confidence" => 0.4, "source" => "local_extraction"} | facts]
+      if Regex.match?(~r/(j'ai (un|une|mon|ma)|rendez.vous|réunion|reunion|train|vol|avion|rdv|à \d+h)/i, text) do
+        [%{"category" => "personal_info", "subject" => "engagement", "content" => content, "confidence" => 0.8, "source" => "local_extraction"} | facts]
+      else
+        facts
+      end
+
+    # Lieux et voyages
+    facts =
+      if Regex.match?(~r/(j'habite|je vis|je suis à|je pars à|je vais à|je rentre de|chez moi)/i, text) do
+        [%{"category" => "personal_info", "subject" => "lieu", "content" => content, "confidence" => 0.8, "source" => "local_extraction"} | facts]
+      else
+        facts
+      end
+
+    # Relations ("mon frère", "ma femme", "mon pote", "mon collègue")
+    facts =
+      if Regex.match?(~r/\b(mon|ma|mes)\s+(frère|soeur|sœur|femme|mari|copain|copine|pote|ami|collègue|fils|fille|père|mère|chien|chat)/i, text) do
+        [%{"category" => "personal_info", "subject" => "relation", "content" => content, "confidence" => 0.8, "source" => "local_extraction"} | facts]
+      else
+        facts
+      end
+
+    # Contexte projet
+    facts =
+      if Regex.match?(~r/(projet|application|système|systeme|architecture)/i, text) && String.length(text) > 15 do
+        [%{"category" => "project_context", "subject" => "project", "content" => content, "confidence" => 0.5, "source" => "local_extraction"} | facts]
       else
         facts
       end

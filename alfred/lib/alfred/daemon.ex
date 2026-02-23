@@ -6,8 +6,6 @@ defmodule Alfred.Daemon do
 
   use GenServer
 
-  alias Alfred.Colors
-
   @check_interval 60_000
   @maintenance_every 60
   @consolidation_every 1_440
@@ -82,8 +80,7 @@ defmodule Alfred.Daemon do
     count = state.check_count + 1
     now = DateTime.utc_now()
 
-    # 1. Vérifier les rappels en retard
-    reminder_count = check_reminders()
+    # 1. Rappels gérés par Alfred.Clock (supervisé)
 
     # 2. Maintenance périodique (toutes les heures)
     if rem(count, @maintenance_every) == 0 do
@@ -105,37 +102,8 @@ defmodule Alfred.Daemon do
 
     %{state |
       check_count: count,
-      last_check: now,
-      reminders_notified: state.reminders_notified + reminder_count
+      last_check: now
     }
-  end
-
-  defp check_reminders do
-    case :alfred_scheduler.check_due() do
-      {:ok, []} ->
-        0
-
-      {:ok, due} ->
-        Enum.each(due, fn r ->
-          IO.puts("  #{Colors.yellow("⏰")} Rappel : [#{r.project}] #{r.text}")
-        end)
-
-        # Notifier via SimpleX si connecté
-        if Alfred.Simplex.Bridge.running?() do
-          Enum.each(due, fn r ->
-            Alfred.Simplex.Bridge.send_notification(
-              "⏰ Rappel : [#{r.project}] #{r.text}"
-            )
-          end)
-        end
-
-        length(due)
-
-      _ ->
-        0
-    end
-  rescue
-    _ -> 0
   end
 
   defp schedule_check do

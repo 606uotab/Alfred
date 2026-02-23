@@ -95,7 +95,11 @@ defmodule Alfred.Chat.Client do
 
   defp maybe_add_tools(payload, nil), do: payload
   defp maybe_add_tools(payload, []), do: payload
-  defp maybe_add_tools(payload, tools), do: Map.put(payload, :tools, tools)
+  defp maybe_add_tools(payload, tools) do
+    payload
+    |> Map.put(:tools, tools)
+    |> Map.put(:tool_choice, "auto")
+  end
 
   defp ensure_http_started do
     :inets.start()

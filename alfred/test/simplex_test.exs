@@ -150,11 +150,11 @@ defmodule Alfred.SimplexTest do
     end
 
     test "save_config and load_config round-trip" do
-      config = %{"host" => "localhost", "port" => 5225, "contact" => "alice"}
+      config = %{"host" => "localhost", "port" => 5226, "contact" => "alice"}
       Alfred.Simplex.Bridge.save_config(config)
       assert {:ok, loaded} = Alfred.Simplex.Bridge.load_config()
       assert loaded["host"] == "localhost"
-      assert loaded["port"] == 5225
+      assert loaded["port"] == 5226
       assert loaded["contact"] == "alice"
     end
 
@@ -199,7 +199,7 @@ defmodule Alfred.SimplexTest do
     end
 
     test "handle status with config but not running" do
-      config = %{"host" => "localhost", "port" => 5225, "contact" => "alice"}
+      config = %{"host" => "localhost", "port" => 5226, "contact" => "alice"}
       Alfred.Simplex.Bridge.save_config(config)
 
       output =
@@ -208,6 +208,36 @@ defmodule Alfred.SimplexTest do
         end)
 
       assert output =~ "inactif" or output =~ "localhost"
+    end
+  end
+
+  # -- Clock --
+
+  describe "Clock" do
+    test "now returns a DateTime" do
+      assert %DateTime{} = Alfred.Clock.now()
+    end
+
+    test "is running via supervision" do
+      assert Process.whereis(Alfred.Clock) != nil
+    end
+
+    test "status returns info" do
+      status = Alfred.Clock.status()
+      assert is_map(status)
+      assert Map.has_key?(status, :tick_count)
+      assert Map.has_key?(status, :reminders_sent)
+      assert Map.has_key?(status, :now)
+      assert %DateTime{} = status.now
+      assert is_binary(status.uptime_human)
+    end
+
+    test "now is approximately current time" do
+      now = Alfred.Clock.now()
+      utc = DateTime.utc_now()
+      # now devrait être UTC+1 (3600s d'avance)
+      diff = DateTime.diff(now, utc)
+      assert diff >= 3590 and diff <= 3610
     end
   end
 end

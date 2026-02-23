@@ -56,6 +56,24 @@ defmodule Alfred.Chat.Tools do
         ["name"]
       ),
 
+      # -- Horloge --
+      tool("get_current_time",
+        "Obtenir la date et l'heure actuelles",
+        %{},
+        []
+      ),
+
+      # -- Recherche web --
+      tool("web_search",
+        "Rechercher sur Internet via DuckDuckGo. " <>
+        "Utilise cet outil quand Monsieur pose une question factuelle, demande des informations actuelles, " <>
+        "ou quand tu ne connais pas la réponse.",
+        %{
+          query: %{type: "string", description: "La requête de recherche (en français ou anglais selon le sujet)"}
+        },
+        ["query"]
+      ),
+
       # -- Outil générique pour toute commande Alfred --
       tool("alfred_command",
         "Exécuter une commande Alfred et retourner le résultat. " <>
@@ -144,6 +162,26 @@ defmodule Alfred.Chat.Tools do
     case Manager.create(name) do
       {:ok, _} -> "Projet \"#{name}\" créé."
       {:error, :already_exists} -> "Le projet \"#{name}\" existe déjà."
+    end
+  rescue
+    e -> "Erreur : #{Exception.message(e)}"
+  end
+
+  def execute("get_current_time", _args) do
+    now = Alfred.Clock.now()
+    jours = ~w(lundi mardi mercredi jeudi vendredi samedi dimanche)
+    mois = ~w(janvier février mars avril mai juin juillet août septembre octobre novembre décembre)
+    jour = Enum.at(jours, Date.day_of_week(now) - 1)
+    m = Enum.at(mois, now.month - 1)
+    "#{jour} #{now.day} #{m} #{now.year}, #{now.hour}h#{String.pad_leading("#{now.minute}", 2, "0")}"
+  end
+
+  def execute("web_search", args) do
+    query = args["query"] || ""
+
+    case Alfred.Chat.WebSearch.search(query) do
+      {:ok, results} -> results
+      {:error, reason} -> "Recherche échouée : #{reason}"
     end
   rescue
     e -> "Erreur : #{Exception.message(e)}"
