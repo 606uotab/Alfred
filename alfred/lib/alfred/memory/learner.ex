@@ -7,6 +7,7 @@ defmodule Alfred.Memory.Learner do
 
   alias Alfred.Butler
   alias Alfred.Memory.{Episodic, Extractor, Procedural}
+  alias Alfred.Soul.ConvictionEvolver
   alias Alfred.Brain.Port, as: Brain
   alias Alfred.Cortex.Port, as: Cortex
 
@@ -36,6 +37,7 @@ defmodule Alfred.Memory.Learner do
     episode_id = saved["id"]
 
     extract_facts(messages, token)
+    extract_convictions(messages, token, episode_id)
     summarize_episode(messages, episode_id)
     detect_patterns()
     extract_culture_suggestions(messages)
@@ -61,20 +63,34 @@ defmodule Alfred.Memory.Learner do
     # 2. Extraire les faits (Mistral → fallback local)
     fact_count = extract_facts(messages, token)
 
-    # 3. Résumer l'épisode via Julia → mettre à jour le fichier
+    # 3. Extraire les convictions
+    extract_convictions(messages, token, episode_id)
+
+    # 4. Résumer l'épisode via Julia → mettre à jour le fichier
     summarize_episode(messages, episode_id)
 
-    # 4. Détecter les patterns (si assez d'épisodes)
+    # 5. Détecter les patterns (si assez d'épisodes)
     detect_patterns()
 
-    # 5. Extraire des suggestions de culture
+    # 6. Extraire des suggestions de culture
     culture_count = extract_culture_suggestions(messages)
 
-    # 6. Consolider via R (toutes les N conversations)
+    # 7. Consolider via R (toutes les N conversations)
     maybe_consolidate()
 
     # Rapport discret
     report(fact_count, culture_count)
+  end
+
+  # -- Étape 2b : Extraction de convictions --
+
+  defp extract_convictions(messages, token, episode_id) do
+    # Mistral extraction (si token dispo)
+    ConvictionEvolver.extract_from_conversation(messages, token, episode_id)
+    # Toujours faire l'extraction locale en complément
+    ConvictionEvolver.extract_local(messages)
+  rescue
+    _ -> :ok
   end
 
   # -- Étape 2 : Extraction de faits --

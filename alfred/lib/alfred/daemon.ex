@@ -100,6 +100,17 @@ defmodule Alfred.Daemon do
       end)
     end
 
+    # 5. Évolution convictions (2x/jour = toutes les 720 checks)
+    if rem(count, 720) == 0 do
+      safe_run(fn ->
+        case Alfred.Chat.Commands.authenticate() do
+          {:ok, token, _, _} ->
+            Alfred.Soul.ConvictionEvolver.evolve(token)
+          _ -> :ok
+        end
+      end)
+    end
+
     %{state |
       check_count: count,
       last_check: now
