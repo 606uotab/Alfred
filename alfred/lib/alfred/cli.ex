@@ -148,6 +148,9 @@ defmodule Alfred.CLI do
       ["stop"] ->
         Alfred.Launcher.stop()
 
+      ["report"] ->
+        daily_report()
+
       ["simplex" | simplex_args] ->
         Alfred.Simplex.Commands.handle(simplex_args)
 
@@ -810,6 +813,7 @@ defmodule Alfred.CLI do
       alfred start                                Démarrer Alfred (sandbox + daemon + bridge)
       alfred start --bg                            Idem en arrière-plan
       alfred stop                                  Arrêter Alfred
+      alfred report                                Rapport quotidien d'activité
 
       alfred                                     Salutation
       alfred project new <nom>                   Créer un projet
@@ -901,6 +905,15 @@ defmodule Alfred.CLI do
 
       alfred help                                Cette aide
     """)
+  end
+
+  # -- Rapport quotidien --
+
+  defp daily_report do
+    {:ok, _report, text} = Alfred.DailyReport.generate()
+    Butler.say("Rapport du jour :\n")
+    IO.puts(text)
+    IO.puts("")
   end
 
   # -- Helpers d'affichage --

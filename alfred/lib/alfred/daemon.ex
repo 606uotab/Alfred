@@ -47,7 +47,8 @@ defmodule Alfred.Daemon do
       check_count: 0,
       last_check: nil,
       notifications: [],
-      reminders_notified: 0
+      reminders_notified: 0,
+      last_report_date: nil
     }
 
     {:ok, state}
@@ -113,7 +114,15 @@ defmodule Alfred.Daemon do
       end)
     end
 
-    # 6. Lecture hebdomadaire (1x/jour = 1440 checks, offset 60 pour ~1h après démarrage)
+    # 6. Rapport quotidien à 17h30 (vérifie toutes les 5 min)
+    state =
+      if count > 0 and rem(count, 5) == 0 do
+        check_daily_report(%{state | check_count: count, last_check: now})
+      else
+        state
+      end
+
+    # 7. Lecture hebdomadaire (1x/jour = 1440 checks, offset 60 pour ~1h après démarrage)
     if count > 0 and rem(count, 1440) == 60 do
       safe_run(fn ->
         case Alfred.Chat.Commands.authenticate() do
@@ -138,6 +147,25 @@ defmodule Alfred.Daemon do
     fun.()
   rescue
     _ -> :ok
+  end
+
+  defp check_daily_report(state) do
+    now = DateTime.utc_now()
+    today = Date.utc_today() |> Date.to_iso8601()
+    hour = now.hour
+    minute = now.minute
+
+    # Envoyer à 17h30 (ou après, si Alfred n'était pas actif à 17h30)
+    already_sent = state.last_report_date == today
+    past_report_time = hour > 17 or (hour == 17 and minute >= 30)
+
+    if past_report_time and not already_sent do
+      IO.puts("[Daemon] Envoi du rapport quotidien")
+      safe_run(fn -> Alfred.DailyReport.generate_and_send() end)
+      %{state | last_report_date: today}
+    else
+      state
+    end
   end
 
   defp maybe_start_bridge do
