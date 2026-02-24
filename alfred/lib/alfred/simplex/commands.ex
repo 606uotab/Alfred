@@ -147,6 +147,10 @@ defmodule Alfred.Simplex.Commands do
           {:ok, _pid} ->
             IO.puts("  #{Colors.icon_ok()} Connecté\n")
             Butler.say("Bridge SimpleX actif. J'écoute les messages, Monsieur.")
+            IO.puts("  #{Colors.dim("Ctrl+C pour arrêter le bridge.")}\n")
+
+            # Bloquer le processus pour garder la VM en vie (comme le daemon)
+            bridge_loop()
 
           {:error, reason} ->
             Butler.say("Erreur de démarrage : #{inspect(reason)}")
@@ -160,6 +164,12 @@ defmodule Alfred.Simplex.Commands do
 
       {:error, reason} ->
         Butler.say("Erreur de connexion : #{inspect(reason)}")
+    end
+  end
+
+  defp bridge_loop do
+    receive do
+      :stop -> :ok
     end
   end
 
