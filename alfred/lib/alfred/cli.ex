@@ -139,6 +139,15 @@ defmodule Alfred.CLI do
       ["soul" | soul_args] ->
         Alfred.Soul.Commands.handle(soul_args)
 
+      ["start"] ->
+        Alfred.Launcher.start()
+
+      ["start", "--bg"] ->
+        Alfred.Launcher.start(background: true)
+
+      ["stop"] ->
+        Alfred.Launcher.stop()
+
       ["simplex" | simplex_args] ->
         Alfred.Simplex.Commands.handle(simplex_args)
 
@@ -798,6 +807,10 @@ defmodule Alfred.CLI do
     Butler.say("Monsieur, voici les commandes à votre disposition :\n")
 
     IO.puts("""
+      alfred start                                Démarrer Alfred (sandbox + daemon + bridge)
+      alfred start --bg                            Idem en arrière-plan
+      alfred stop                                  Arrêter Alfred
+
       alfred                                     Salutation
       alfred project new <nom>                   Créer un projet
       alfred project list                        Lister les projets
