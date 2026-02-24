@@ -10,7 +10,7 @@ defmodule Alfred.Simplex.WebSocket do
   Connecte à un serveur WebSocket (HTTP upgrade handshake).
   Retourne {:ok, socket} ou {:error, reason}.
   """
-  def connect(host \\ ~c"localhost", port \\ 5226, path \\ "/") do
+  def connect(host \\ ~c"localhost", port \\ 5227, path \\ "/") do
     host_charlist = if is_binary(host), do: String.to_charlist(host), else: host
 
     case :gen_tcp.connect(host_charlist, port, [:binary, active: false, packet: :raw], 5_000) do

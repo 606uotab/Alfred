@@ -12,7 +12,7 @@ defmodule Alfred.Simplex.Commands do
       {:ok, config} ->
         Butler.say("Configuration SimpleX existante détectée.")
         IO.puts("  Hôte    : #{config["host"] || "localhost"}")
-        IO.puts("  Port    : #{config["port"] || 5226}")
+        IO.puts("  Port    : #{config["port"] || 5227}")
         IO.puts("  Contact : #{config["contact"]}\n")
 
         connect_with_config(config)
@@ -31,7 +31,7 @@ defmodule Alfred.Simplex.Commands do
           {:ok, config} ->
             Butler.say("Bridge SimpleX configuré mais inactif.\n")
             IO.puts("  Hôte    : #{config["host"] || "localhost"}")
-            IO.puts("  Port    : #{config["port"] || 5226}")
+            IO.puts("  Port    : #{config["port"] || 5227}")
             IO.puts("  Contact : #{config["contact"]}")
             IO.puts("\n  Lancez : alfred simplex connect\n")
 
@@ -104,12 +104,12 @@ defmodule Alfred.Simplex.Commands do
     host = IO.gets("  Hôte (défaut: localhost) : ") |> String.trim()
     host = if host == "", do: "localhost", else: host
 
-    port_str = IO.gets("  Port (défaut: 5226) : ") |> String.trim()
+    port_str = IO.gets("  Port (défaut: 5227) : ") |> String.trim()
 
     port =
       case Integer.parse(port_str) do
         {p, ""} -> p
-        _ -> 5226
+        _ -> 5227
       end
 
     contact = IO.gets("  Contact par défaut (nom SimpleX) : ") |> String.trim()
@@ -124,7 +124,7 @@ defmodule Alfred.Simplex.Commands do
 
   defp connect_with_config(config) do
     host = to_charlist(config["host"] || "localhost")
-    port = config["port"] || 5226
+    port = config["port"] || 5227
 
     Butler.say("Vérification de simplex-chat sur #{config["host"] || "localhost"}:#{port}...")
 

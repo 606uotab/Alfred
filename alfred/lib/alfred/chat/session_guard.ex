@@ -47,7 +47,7 @@ defmodule Alfred.Chat.SessionGuard do
 
   @impl true
   def init(:inactive) do
-    Process.flag(:trap_exit, true)
+    # Pas de trap_exit par défaut — activé seulement quand une session est en cours
     {:ok, %{session: nil, token: nil}}
   end
 
@@ -58,6 +58,7 @@ defmodule Alfred.Chat.SessionGuard do
 
   @impl true
   def handle_cast({:activate, session, token}, _state) do
+    Process.flag(:trap_exit, true)
     {:noreply, %{session: session, token: token}}
   end
 
@@ -68,6 +69,7 @@ defmodule Alfred.Chat.SessionGuard do
 
   @impl true
   def handle_cast(:deactivate, _state) do
+    Process.flag(:trap_exit, false)
     {:noreply, %{session: nil, token: nil}}
   end
 

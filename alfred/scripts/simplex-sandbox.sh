@@ -8,7 +8,7 @@
 
 set -e
 
-PORT="${1:-5226}"
+PORT="${1:-5227}"
 SIMPLEX_HOME="${HOME}/.alfred/simplex"
 mkdir -p "${SIMPLEX_HOME}"
 

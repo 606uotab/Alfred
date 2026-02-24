@@ -120,7 +120,7 @@ defmodule Alfred.Simplex.Bridge do
     info = %{
       started_at: state.started_at,
       host: state.config["host"] || "localhost",
-      port: state.config["port"] || 5226,
+      port: state.config["port"] || 5227,
       contact: state.config["contact"],
       connected: state.socket != nil,
       message_count: state.message_count,
@@ -157,10 +157,18 @@ defmodule Alfred.Simplex.Bridge do
   @impl true
   def handle_info(:connect, state) do
     host = state.config["host"] || "localhost"
-    port = state.config["port"] || 5226
+    port = state.config["port"] || 5227
 
     case Client.connect(to_charlist(host), port) do
       {:ok, socket} ->
+        IO.puts("[Bridge] Connecté à #{host}:#{port}")
+        # Forcer la re-souscription aux groupes/contacts (critique après restart Tor)
+        try do
+          Client.send_command(socket, "/_resubscribe all")
+          IO.puts("[Bridge] Resubscribe envoyé")
+        catch
+          _, _ -> :ok
+        end
         schedule_ping()
         {:noreply, %{state | socket: socket, ws_buffer: <<>>}}
 
@@ -276,6 +284,8 @@ defmodule Alfred.Simplex.Bridge do
 
     case Client.parse_response(payload) do
       {:event, resp} ->
+        event_type = resp["type"] || get_in(resp, ["data", "type"]) || "?"
+        IO.puts("[Bridge] Event: #{event_type}")
         handle_event(resp, state)
 
       {:response, _corr_id, _resp} ->
@@ -376,7 +386,7 @@ defmodule Alfred.Simplex.Bridge do
     else
       if state.busy do
         IO.puts("[Bridge] Alfred occupé, message en file d'attente (queue: #{:queue.len(state.queue) + 1})")
-        maybe_send_waiting(state, msg)
+        state = maybe_send_waiting(state, msg)
         %{state | queue: :queue.in(msg, state.queue)}
       else
         dispatch_worker(state, msg)
@@ -516,6 +526,10 @@ defmodule Alfred.Simplex.Bridge do
       catch
         _, _ -> :ok
       end
+
+      %{state | last_wait_msg: now}
+    else
+      state
     end
   end
 
