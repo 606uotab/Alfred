@@ -99,6 +99,36 @@ defmodule Alfred.Memory.Commands do
     end
   end
 
+  def handle(["consolidate"]) do
+    Butler.say("Consolidation de la mémoire en cours, Monsieur...")
+
+    case Alfred.Memory.Consolidator.run() do
+      {:ok, stats} ->
+        Butler.say("Consolidation terminée.")
+        IO.puts("  Épisodes archivés : #{stats["episodes_archived"]}")
+        IO.puts("  Faits avant/après : #{stats["facts_before"]} → #{stats["facts_after"]}")
+        IO.puts("  Faits oubliés     : #{stats["facts_decayed"]}")
+        IO.puts("  Patterns élagués  : #{stats["patterns_pruned"]}")
+        IO.puts("  Synthèse          : #{if stats["synthesis_generated"], do: "oui", else: "non"}")
+        IO.puts("  Durée             : #{stats["duration_ms"]}ms")
+        IO.puts("")
+
+      {:error, reason} ->
+        Butler.say("Erreur lors de la consolidation : #{inspect(reason)}")
+    end
+  end
+
+  def handle(["stats"]) do
+    stats = Alfred.Memory.Consolidator.stats()
+    Butler.say("Monsieur, voici l'état de ma mémoire :\n")
+    IO.puts("  Épisodes  : #{stats.episodes}")
+    IO.puts("  Faits     : #{stats.facts}")
+    IO.puts("  Patterns  : #{stats.patterns}")
+    IO.puts("  Synthèse  : #{if stats.synthesis, do: "oui", else: "non"}")
+    IO.puts("  Dernière consolidation : #{stats.last_consolidation || "jamais"}")
+    IO.puts("")
+  end
+
   def handle(_) do
     Butler.say("Monsieur, les commandes de mémoire sont :\n")
 
@@ -108,6 +138,8 @@ defmodule Alfred.Memory.Commands do
       alfred memory episodes              Historique des conversations
       alfred memory patterns              Patterns détectés
       alfred memory forget <id>           Oublier un fait
+      alfred memory consolidate           Consolider la mémoire
+      alfred memory stats                 Statistiques mémoire
     """)
   end
 

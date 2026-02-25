@@ -326,9 +326,11 @@ defmodule Alfred.Simplex.Bridge do
 
         case parse_simplex_command(text) do
           {:command, cmd, args} ->
+            Alfred.Initiative.Smart.log_interaction("command", cmd)
             handle_simplex_command(cmd, args, state, {:direct, sender})
 
           :not_command ->
+            Alfred.Initiative.Smart.log_interaction("message", "direct")
             enqueue_message(state, %{target: sender, text: text, context: :direct})
         end
 
@@ -337,9 +339,11 @@ defmodule Alfred.Simplex.Bridge do
 
         case parse_simplex_command(text) do
           {:command, cmd, args} ->
+            Alfred.Initiative.Smart.log_interaction("command", cmd)
             handle_simplex_command(cmd, args, state, {:group, group_name})
 
           :not_command ->
+            Alfred.Initiative.Smart.log_interaction("message", "group")
             enqueue_message(state, %{target: group_name, text: text, context: :group})
         end
 
@@ -623,6 +627,82 @@ defmodule Alfred.Simplex.Bridge do
     _ -> "Erreur lors de la consultation de l'âme."
   end
 
+  defp execute_command("dashboard", _, _state) do
+    if Alfred.Dashboard.Server.running?() do
+      port = Alfred.Dashboard.Server.port()
+      "Dashboard actif : http://localhost:#{port}"
+    else
+      "Dashboard non démarré. Lancez : alfred dashboard web"
+    end
+  end
+
+  defp execute_command("voice", args, _state) do
+    case args do
+      [] ->
+        status = Alfred.Voice.status()
+        "Voix : #{if status.enabled, do: "activée", else: "désactivée"} " <>
+        "(#{if status.available, do: "espeak-ng installé", else: "espeak-ng absent"})"
+
+      ["on"] ->
+        if Alfred.Voice.available?() do
+          Alfred.Voice.enable()
+          Alfred.Voice.speak("Ma voix est activée, Monsieur.")
+          "Voix activée."
+        else
+          "espeak-ng n'est pas installé."
+        end
+
+      ["off"] ->
+        Alfred.Voice.disable()
+        "Voix désactivée."
+
+      ["say" | words] when words != [] ->
+        text = Enum.join(words, " ")
+        if Alfred.Voice.available?() do
+          was = Alfred.Voice.enabled?()
+          unless was, do: Alfred.Voice.enable()
+          Alfred.Voice.speak(text)
+          unless was, do: Alfred.Voice.disable()
+          "Je dis : \"#{text}\""
+        else
+          "espeak-ng n'est pas installé."
+        end
+
+      _ -> nil
+    end
+  rescue
+    _ -> "Erreur vocale."
+  end
+
+  defp execute_command("memory", args, _state) do
+    case args do
+      [] ->
+        stats = Alfred.Memory.Consolidator.stats()
+        lines = [
+          "Mémoire d'Alfred :",
+          "",
+          "  Épisodes : #{stats.episodes}",
+          "  Faits    : #{stats.facts}",
+          "  Patterns : #{stats.patterns}",
+          "  Synthèse : #{if stats.synthesis, do: "oui", else: "non"}",
+          "  Dernière consolidation : #{stats.last_consolidation || "jamais"}"
+        ]
+        Enum.join(lines, "\n")
+
+      ["consolidate"] ->
+        {:async, fn ->
+          case Alfred.Memory.Consolidator.run() do
+            {:ok, s} -> "Consolidation terminée : #{s["episodes_archived"]} archivés, #{s["facts_decayed"]} oubliés."
+            {:error, reason} -> "Erreur : #{inspect(reason)}"
+          end
+        end}
+
+      _ -> nil
+    end
+  rescue
+    _ -> "Erreur lors de la consultation de la mémoire."
+  end
+
   defp execute_command("journal", args, _state) do
     case args do
       [] ->
@@ -785,6 +865,12 @@ defmodule Alfred.Simplex.Bridge do
     /brain — Briefing du cerveau (Julia)
     /cortex — Productivité (R)
     /soul — Traits d'âme et convictions
+    /dashboard — URL du dashboard web
+    /voice — État de la voix
+    /voice on|off — Activer/désactiver
+    /voice say <texte> — Parler
+    /memory — Stats mémoire
+    /memory consolidate — Consolider la mémoire
     /journal — Dernière entrée du journal
     /journal list — Entrées récentes
     /journal write — Écrire maintenant

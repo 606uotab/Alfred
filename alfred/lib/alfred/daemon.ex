@@ -48,7 +48,8 @@ defmodule Alfred.Daemon do
       reminders_notified: 0,
       last_report_date: nil,
       last_reading_date: nil,
-      last_journal_date: nil
+      last_journal_date: nil,
+      last_consolidation_date: nil
     }
 
     {:ok, state}
@@ -140,6 +141,14 @@ defmodule Alfred.Daemon do
         state
       end
 
+    # 10. Consolidation mémoire à 3h du matin (vérifie toutes les 5 min)
+    state =
+      if count > 0 and rem(count, 5) == 0 do
+        check_consolidation(%{state | check_count: count, last_check: now})
+      else
+        state
+      end
+
     %{state |
       check_count: count,
       last_check: now
@@ -170,6 +179,22 @@ defmodule Alfred.Daemon do
       IO.puts("[Daemon] Envoi du rapport quotidien")
       safe_run(fn -> Alfred.DailyReport.generate_and_send() end)
       %{state | last_report_date: today}
+    else
+      state
+    end
+  end
+
+  defp check_consolidation(state) do
+    today = Date.utc_today() |> Date.to_iso8601()
+    hour = DateTime.utc_now().hour
+
+    already_done = state.last_consolidation_date == today
+    past_time = hour >= 3 and hour < 6
+
+    if past_time and not already_done do
+      IO.puts("[Daemon] Consolidation nocturne de la mémoire")
+      safe_run(fn -> Alfred.Memory.Consolidator.run() end)
+      %{state | last_consolidation_date: today}
     else
       state
     end

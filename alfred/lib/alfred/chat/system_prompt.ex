@@ -86,16 +86,23 @@ defmodule Alfred.Chat.SystemPrompt do
           parts ++ [Alfred.Soul.State.to_prompt_text(soul_state)]
       end
 
+    # Synthèse mémoire consolidée (prioritaire sur les faits individuels)
     parts =
-      if facts != [] do
-        facts_text =
-          facts
-          |> Enum.map(fn f -> "- #{f["content"]}" end)
-          |> Enum.join("\n")
+      case Alfred.Memory.Consolidator.load_synthesis() do
+        %{"text" => synthesis_text} when is_binary(synthesis_text) ->
+          parts ++ ["\nSynthèse de ma mémoire :\n#{synthesis_text}"]
+        _ ->
+          # Fallback : faits individuels si pas de synthèse
+          if facts != [] do
+            facts_text =
+              facts
+              |> Enum.map(fn f -> "- #{f["content"]}" end)
+              |> Enum.join("\n")
 
-        parts ++ ["\nCe que je sais de Monsieur :\n#{facts_text}"]
-      else
-        parts
+            parts ++ ["\nCe que je sais de Monsieur :\n#{facts_text}"]
+          else
+            parts
+          end
       end
 
     parts =

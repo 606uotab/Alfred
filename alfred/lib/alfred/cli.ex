@@ -139,6 +139,9 @@ defmodule Alfred.CLI do
       ["journal" | journal_args] ->
         Alfred.Journal.Commands.handle(journal_args)
 
+      ["voice" | voice_args] ->
+        Alfred.Voice.Commands.handle(voice_args)
+
       ["soul" | soul_args] ->
         Alfred.Soul.Commands.handle(soul_args)
 
@@ -165,6 +168,9 @@ defmodule Alfred.CLI do
 
       ["dashboard"] ->
         dashboard()
+
+      ["dashboard", "web"] ->
+        dashboard_web()
 
       ["health"] ->
         health()
@@ -905,14 +911,44 @@ defmodule Alfred.CLI do
       alfred journal write                        Écrire manuellement
       alfred journal show YYYY-MM-DD              Entrée d'une date
 
+      alfred voice                              État de la voix
+      alfred voice on                           Activer la voix
+      alfred voice off                          Désactiver la voix
+      alfred voice say <texte>                  Tester la voix
+
+      alfred memory consolidate                 Consolider la mémoire
+      alfred memory stats                       Statistiques mémoire
+
       alfred soul                                 Voir les traits de personnalité
       alfred soul init                            Inscrire l'âme (coffre creator)
       alfred soul check                           Vérifier l'âme
       alfred soul history                         Historique de l'évolution
       alfred soul reset                           Réinitialiser les traits
 
+      alfred dashboard web                       Dashboard web (http://localhost:4567)
+
       alfred help                                Cette aide
     """)
+  end
+
+  defp dashboard_web do
+    Butler.say("Démarrage du dashboard web, Monsieur...")
+
+    case Alfred.Dashboard.Server.start_link() do
+      {:ok, _pid} ->
+        IO.puts("  Dashboard : http://localhost:4567")
+        IO.puts("  Ctrl+C pour arrêter.")
+        IO.puts("")
+        # Garder le process en vie
+        Process.sleep(:infinity)
+
+      {:error, {:already_started, _}} ->
+        port = Alfred.Dashboard.Server.port()
+        IO.puts("  Dashboard déjà actif : http://localhost:#{port}")
+
+      {:error, reason} ->
+        Butler.say("Erreur : #{inspect(reason)}")
+    end
   end
 
   # -- Rapport quotidien --
