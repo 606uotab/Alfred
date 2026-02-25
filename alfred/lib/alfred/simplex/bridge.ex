@@ -623,17 +623,112 @@ defmodule Alfred.Simplex.Bridge do
     _ -> "Erreur lors de la consultation de l'âme."
   end
 
+  defp execute_command("system", args, _state) do
+    case args do
+      [] ->
+        {:async, fn ->
+          with {:ok, %{"info" => info}} <- Alfred.Arms.Port.send_command(%{cmd: "system_info"}),
+               {:ok, %{"memory" => mem}} <- Alfred.Arms.Port.send_command(%{cmd: "memory_usage"}) do
+            total_gb = Float.round(mem["total_mb"] / 1024, 1)
+            used_gb = Float.round(mem["used_mb"] / 1024, 1)
+
+            lines = [
+              "Système :",
+              "",
+              "  Machine : #{info["hostname"]}",
+              "  OS      : #{info["os"]}",
+              "  Uptime  : #{info["uptime"]}",
+              "  Charge  : #{info["load"]}",
+              "  RAM     : #{used_gb} Go / #{total_gb} Go (#{mem["percent_used"]}%)"
+            ]
+
+            if mem["alert"], do: lines ++ ["  /!\\ Mémoire critique !"], else: lines
+            |> Enum.join("\n")
+          else
+            {:error, msg} -> "Bras indisponibles : #{msg}"
+          end
+        end}
+
+      ["disk"] ->
+        {:async, fn ->
+          case Alfred.Arms.Port.send_command(%{cmd: "disk_usage"}) do
+            {:ok, %{"partitions" => partitions, "alert" => alert}} ->
+              lines = ["Disques :"] ++
+                Enum.map(partitions, fn p ->
+                  pct = p["percent_used"]
+                  icon = if pct >= 90, do: "!", else: "○"
+                  size_gb = Float.round(p["size_mb"] / 1024, 1)
+                  avail_gb = Float.round(p["available_mb"] / 1024, 1)
+                  "  #{icon} #{p["mount"]} — #{avail_gb} Go libres / #{size_gb} Go (#{pct}%)"
+                end)
+
+              lines = if alert, do: lines ++ ["  /!\\ Espace disque critique !"], else: lines
+              Enum.join(lines, "\n")
+
+            {:error, msg} -> "Bras indisponibles : #{msg}"
+          end
+        end}
+
+      ["memory"] ->
+        {:async, fn ->
+          case Alfred.Arms.Port.send_command(%{cmd: "memory_usage"}) do
+            {:ok, %{"memory" => mem}} ->
+              total_gb = Float.round(mem["total_mb"] / 1024, 1)
+              used_gb = Float.round(mem["used_mb"] / 1024, 1)
+              avail_gb = Float.round(mem["available_mb"] / 1024, 1)
+
+              lines = [
+                "Mémoire :",
+                "  RAM       : #{used_gb} Go / #{total_gb} Go (#{mem["percent_used"]}%)",
+                "  Disponible: #{avail_gb} Go"
+              ]
+
+              lines = if mem["swap_total_mb"] > 0 do
+                swap_total = Float.round(mem["swap_total_mb"] / 1024, 1)
+                swap_free = Float.round(mem["swap_free_mb"] / 1024, 1)
+                lines ++ ["  Swap      : #{swap_free} Go libres / #{swap_total} Go"]
+              else
+                lines
+              end
+
+              lines = if mem["alert"], do: lines ++ ["  /!\\ Mémoire critique !"], else: lines
+              Enum.join(lines, "\n")
+
+            {:error, msg} -> "Bras indisponibles : #{msg}"
+          end
+        end}
+
+      ["backup"] ->
+        {:async, fn ->
+          data_dir = Path.expand("~/.alfred")
+          case Alfred.Arms.Port.send_command(%{cmd: "backup", data_dir: data_dir}) do
+            {:ok, %{"backup" => backup}} ->
+              size = format_backup_size(backup["size_bytes"] || (backup["size_kb"] || 0) * 1024)
+              "Sauvegarde terminée.\n  Fichier : #{backup["path"]}\n  Taille  : #{size}"
+
+            {:error, msg} -> "Erreur sauvegarde : #{msg}"
+          end
+        end}
+
+      _ -> nil
+    end
+  end
+
   defp execute_command("help", _, _) do
     """
     Commandes disponibles :
     /status — État d'Alfred
     /report — Rapport d'activité du jour
-    /library — Livre en cours
+    /library — Livre en cours et historique
     /library next — Commencer un nouveau livre
     /library read — Lire la portion du jour
     /brain — Briefing du cerveau (Julia)
     /cortex — Productivité (R)
     /soul — Traits d'âme et convictions
+    /system — Info système (machine, RAM)
+    /system disk — Utilisation des disques
+    /system memory — Détail mémoire et swap
+    /system backup — Sauvegarder les données
     /health — Diagnostic des organes
     /help — Cette aide
     """
@@ -669,6 +764,16 @@ defmodule Alfred.Simplex.Bridge do
       resp["summary"] || "Pas de données de productivité."
     end
   end
+
+  defp format_backup_size(bytes) when is_integer(bytes) do
+    cond do
+      bytes >= 1_048_576 -> "#{Float.round(bytes / 1_048_576, 1)} Mo"
+      bytes >= 1024 -> "#{Float.round(bytes / 1024, 1)} Ko"
+      true -> "#{bytes} octets"
+    end
+  end
+
+  defp format_backup_size(_), do: "inconnue"
 
   defp format_command_uptime(seconds) do
     cond do

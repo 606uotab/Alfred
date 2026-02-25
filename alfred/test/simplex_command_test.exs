@@ -40,11 +40,17 @@ defmodule Alfred.Simplex.CommandParserTest do
     end
 
     test "all known commands parse correctly" do
-      commands = ~w(status report library health help brain cortex soul)
+      commands = ~w(status report library health help brain cortex soul system)
 
       for cmd <- commands do
         assert {:command, ^cmd, []} = CommandParser.parse("/#{cmd}")
       end
+    end
+
+    test "parses system subcommands" do
+      assert CommandParser.parse("/system disk") == {:command, "system", ["disk"]}
+      assert CommandParser.parse("/system memory") == {:command, "system", ["memory"]}
+      assert CommandParser.parse("/system backup") == {:command, "system", ["backup"]}
     end
   end
 end
