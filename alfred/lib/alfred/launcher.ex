@@ -68,15 +68,18 @@ defmodule Alfred.Launcher do
     Alfred.Storage.Local.ensure_data_dir!()
     {:ok, _} = Alfred.Application.start()
 
-    # 4. Daemon (lance le bridge automatiquement via maybe_start_bridge)
+    # 4. Daemon
     unless Alfred.Daemon.running?() do
       {:ok, _} = Alfred.Daemon.start_link()
     end
 
-    # 5. PID file
+    # 5. Bridge SimpleX (démarré ici car le sandbox est garanti prêt)
+    start_bridge()
+
+    # 7. PID file
     write_pid_file()
 
-    # 6. Résumé
+    # 8. Résumé
     IO.puts("")
     IO.puts(Colors.header("Alfred actif"))
     IO.puts("  Daemon    : #{status_icon(Alfred.Daemon.running?())}")
@@ -129,6 +132,35 @@ defmodule Alfred.Launcher do
       {_, _} ->
         Butler.say("Erreur au lancement en arrière-plan.")
     end
+  end
+
+  # -- Bridge --
+
+  defp start_bridge do
+    alias Alfred.Simplex.Bridge
+
+    if Bridge.running?() do
+      IO.puts("  #{Colors.icon_ok()} Bridge SimpleX déjà actif")
+    else
+      case Bridge.load_config() do
+        {:ok, config} ->
+          # Petit délai pour laisser simplex-chat s'initialiser complètement
+          Process.sleep(1_000)
+
+          case Bridge.start_link(config) do
+            {:ok, _} ->
+              IO.puts("  #{Colors.icon_ok()} Bridge SimpleX démarré")
+
+            {:error, reason} ->
+              IO.puts("  #{Colors.icon_warn()} Bridge SimpleX : #{inspect(reason)}")
+          end
+
+        :no_config ->
+          IO.puts("  #{Colors.icon_warn()} Pas de config SimpleX — bridge non démarré")
+      end
+    end
+  rescue
+    _ -> IO.puts("  #{Colors.icon_warn()} Erreur au démarrage du bridge")
   end
 
   # -- Sandbox --

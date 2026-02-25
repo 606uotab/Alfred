@@ -323,11 +323,25 @@ defmodule Alfred.Simplex.Bridge do
     case extract_incoming_message(resp) do
       {:ok, sender, text, :direct} ->
         IO.puts("[Bridge] Message direct de #{sender}: #{String.slice(text, 0, 50)}")
-        enqueue_message(state, %{target: sender, text: text, context: :direct})
+
+        case parse_simplex_command(text) do
+          {:command, cmd, args} ->
+            handle_simplex_command(cmd, args, state, {:direct, sender})
+
+          :not_command ->
+            enqueue_message(state, %{target: sender, text: text, context: :direct})
+        end
 
       {:ok, sender, text, {:group, group_name}} ->
         IO.puts("[Bridge] Message groupe ##{group_name} de #{sender}: #{String.slice(text, 0, 50)}")
-        enqueue_message(state, %{target: group_name, text: text, context: :group})
+
+        case parse_simplex_command(text) do
+          {:command, cmd, args} ->
+            handle_simplex_command(cmd, args, state, {:group, group_name})
+
+          :not_command ->
+            enqueue_message(state, %{target: group_name, text: text, context: :group})
+        end
 
       :ignore ->
         state
@@ -374,6 +388,160 @@ defmodule Alfred.Simplex.Bridge do
       {:ok, sender, text, context}
     else
       :ignore
+    end
+  end
+
+  # -- Commandes SimpleX (/status, /report, etc.) --
+
+  defp parse_simplex_command(text) do
+    text = String.trim(text)
+
+    if String.starts_with?(text, "/") do
+      parts = text |> String.slice(1..-1//1) |> String.split()
+
+      case parts do
+        [cmd | args] -> {:command, String.downcase(cmd), args}
+        _ -> :not_command
+      end
+    else
+      :not_command
+    end
+  end
+
+  defp handle_simplex_command(cmd, args, state, context) do
+    case execute_command(cmd, args, state) do
+      nil ->
+        # Commande inconnue → traiter comme message normal via Mistral
+        text = "/" <> cmd <> if(args != [], do: " " <> Enum.join(args, " "), else: "")
+        {target, ctx} = command_context_to_msg(context)
+        enqueue_message(state, %{target: target, text: text, context: ctx})
+
+      reply ->
+        IO.puts("[Bridge] Commande /#{cmd} exécutée")
+        send_command_reply(state, context, reply)
+        state
+    end
+  end
+
+  defp execute_command("status", _, state) do
+    uptime = DateTime.diff(DateTime.utc_now(), state.started_at, :second)
+    uptime_str = format_command_uptime(uptime)
+
+    daemon_status = if Alfred.Daemon.running?(), do: "actif", else: "inactif"
+    bridge_status = if state.socket, do: "connecté", else: "déconnecté"
+    queue_size = :queue.len(state.queue)
+
+    lines = [
+      "Alfred — État actuel",
+      "",
+      "Daemon : #{daemon_status}",
+      "Bridge : #{bridge_status} (#{uptime_str})",
+      "Messages traités : #{state.message_count}",
+      "File d'attente : #{queue_size}",
+      "Mistral : #{if state.token, do: "authentifié", else: "non configuré"}"
+    ]
+
+    Enum.join(lines, "\n")
+  end
+
+  defp execute_command("report", _, _state) do
+    case Alfred.DailyReport.generate() do
+      {:ok, _report, text} -> text
+      _ -> "Erreur lors de la génération du rapport."
+    end
+  rescue
+    _ -> "Erreur lors de la génération du rapport."
+  end
+
+  defp execute_command("library", args, _state) do
+    case args do
+      [] ->
+        # Afficher l'état de lecture actuel
+        case Alfred.Library.State.load_current() do
+          nil ->
+            books_read = Alfred.Library.State.books_read_count()
+
+            if books_read > 0 do
+              "Aucune lecture en cours. #{books_read} livre(s) lu(s) au total."
+            else
+              "Aucune lecture en cours."
+            end
+
+          reading_state ->
+            book = reading_state["current_book"]
+            day = Alfred.Library.State.current_day()
+            logs = reading_state["daily_logs"] || []
+            pages_read = length(logs) * (book["pages_per_day"] || 0)
+            total = book["total_pages"] || 0
+            pct = if total > 0, do: round(pages_read / total * 100), else: 0
+
+            "Lecture en cours : \"#{book["title"]}\" de #{book["author"]}\n" <>
+              "Jour #{day}/7 — #{pct}% lu (#{pages_read}/#{total} pages)"
+        end
+
+      _ ->
+        # Sous-commandes (next, read) nécessitent Mistral → nil
+        nil
+    end
+  rescue
+    _ -> "Erreur lors de la consultation de la bibliothèque."
+  end
+
+  defp execute_command("health", _, _state) do
+    checks = :alfred_health.check_all()
+
+    lines =
+      Enum.map(checks, fn {organ, info} ->
+        icon = case info.status do
+          :ok -> "[OK]"
+          :warning -> "[!!]"
+          _ -> "[KO]"
+        end
+
+        "#{icon} #{organ}"
+      end)
+
+    "Diagnostic Alfred :\n\n" <> Enum.join(lines, "\n")
+  rescue
+    _ -> "Erreur lors du diagnostic."
+  end
+
+  defp execute_command("help", _, _) do
+    """
+    Commandes disponibles :
+    /status — État d'Alfred (daemon, bridge, mémoire)
+    /report — Rapport d'activité du jour
+    /library — Livre en cours et progression
+    /health — Diagnostic des organes
+    /help — Cette aide
+    """
+    |> String.trim()
+  end
+
+  defp execute_command(_, _, _), do: nil
+
+  defp send_command_reply(state, context, text) do
+    if state.socket do
+      try do
+        case context do
+          {:group, group} -> Client.send_group_message(state.socket, group, text)
+          {:direct, contact} -> Client.send_direct_message(state.socket, contact, text)
+        end
+      catch
+        _, _ -> IO.puts("[Bridge] Erreur envoi réponse commande")
+      end
+    end
+  end
+
+  defp command_context_to_msg({:group, group}), do: {group, :group}
+  defp command_context_to_msg({:direct, contact}), do: {contact, :direct}
+
+  defp format_command_uptime(seconds) do
+    cond do
+      seconds < 60 -> "#{seconds}s"
+      seconds < 3600 -> "#{div(seconds, 60)}min"
+      seconds < 86400 -> "#{div(seconds, 3600)}h #{rem(div(seconds, 60), 60)}min"
+      true -> "#{div(seconds, 86400)}j #{rem(div(seconds, 3600), 24)}h"
     end
   end
 

@@ -122,7 +122,12 @@ defmodule Alfred.Daemon do
         state
       end
 
-    # 7. Lecture hebdomadaire (1x/jour = 1440 checks, offset 60 pour ~1h après démarrage)
+    # 7. Initiatives proactives (toutes les 30 min)
+    if count > 0 and rem(count, 30) == 15 do
+      safe_run(fn -> Alfred.Initiative.check_and_act() end)
+    end
+
+    # 8. Lecture hebdomadaire (1x/jour = 1440 checks, offset 60 pour ~1h après démarrage)
     if count > 0 and rem(count, 1440) == 60 do
       safe_run(fn ->
         case Alfred.Chat.Commands.authenticate() do
