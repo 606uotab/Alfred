@@ -167,14 +167,31 @@ defmodule Alfred.Chat.SystemPrompt do
         _ -> parts
       end
 
-    # Instruction lecture — l'état réel est lu dynamiquement, pas figé dans le prompt
+    # Lecture en cours — état réel lu dynamiquement
     parts =
-      parts ++
-        [
-          "\nIMPORTANT : Je ne dois JAMAIS inventer ce que je lis. " <>
-            "Si on me demande ce que je lis, je dois recommander la commande /library " <>
-            "qui donne l'état exact en temps réel."
-        ]
+      try do
+        case Alfred.Library.State.load_current() do
+          nil ->
+            parts ++ ["\nJe ne lis aucun livre en ce moment."]
+
+          reading_state ->
+            book = reading_state["current_book"]
+            day = Alfred.Library.State.current_day()
+            logs = reading_state["daily_logs"] || []
+            pages_read = length(logs) * (book["pages_per_day"] || 0)
+            total = book["total_pages"] || 0
+            pct = if total > 0, do: round(pages_read / total * 100), else: 0
+
+            parts ++ [
+              "\nActuellement je lis \"#{book["title"]}\" de #{book["author"]}.",
+              "Jour #{day}/7 — #{pct}% lu (#{pages_read}/#{total} pages).",
+              "Je lis chaque jour à 14h, et j'écris dans mon journal à 22h.",
+              "IMPORTANT : Je ne dois JAMAIS inventer d'autres livres que celui-ci."
+            ]
+        end
+      rescue
+        _ -> parts ++ ["\nJe ne lis aucun livre en ce moment."]
+      end
 
     Enum.join(parts, "\n")
   end

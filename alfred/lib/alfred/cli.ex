@@ -136,6 +136,9 @@ defmodule Alfred.CLI do
       ["library" | lib_args] ->
         Alfred.Library.Commands.handle(lib_args)
 
+      ["journal" | journal_args] ->
+        Alfred.Journal.Commands.handle(journal_args)
+
       ["soul" | soul_args] ->
         Alfred.Soul.Commands.handle(soul_args)
 
@@ -896,6 +899,11 @@ defmodule Alfred.CLI do
       alfred library report                        Rapports de lecture
       alfred library next                          Commencer un nouveau livre
       alfred library read                          Lire la portion du jour
+
+      alfred journal                              Dernière entrée du journal
+      alfred journal list                         Entrées récentes
+      alfred journal write                        Écrire manuellement
+      alfred journal show YYYY-MM-DD              Entrée d'une date
 
       alfred soul                                 Voir les traits de personnalité
       alfred soul init                            Inscrire l'âme (coffre creator)

@@ -623,6 +623,66 @@ defmodule Alfred.Simplex.Bridge do
     _ -> "Erreur lors de la consultation de l'âme."
   end
 
+  defp execute_command("journal", args, _state) do
+    case args do
+      [] ->
+        case Alfred.Journal.load_latest() do
+          {:ok, entry} ->
+            date = entry["date"]
+            mood = entry["mood"] || "?"
+            text = entry["entry"] || ""
+            highlights = entry["highlights"] || []
+
+            lines = ["Journal du #{date} (#{mood}) :", "", text]
+
+            lines = if highlights != [] do
+              lines ++ ["", "Points marquants :"] ++
+                Enum.map(highlights, fn h -> "  - #{h}" end)
+            else
+              lines
+            end
+
+            Enum.join(lines, "\n")
+
+          {:error, _} ->
+            "Je n'ai pas encore écrit dans mon journal."
+        end
+
+      ["list"] ->
+        entries = Alfred.Journal.list_recent(5)
+
+        if entries == [] do
+          "Mon journal est encore vierge."
+        else
+          lines = ["Mes dernières entrées :"] ++
+            Enum.map(entries, fn e ->
+              first_line = (e["entry"] || "")
+                |> String.slice(0, 80)
+                |> then(fn s ->
+                  if String.length(e["entry"] || "") > 80, do: s <> "...", else: s
+                end)
+              "  #{e["date"]} (#{e["mood"] || "?"}) — #{first_line}"
+            end)
+
+          Enum.join(lines, "\n")
+        end
+
+      ["write"] ->
+        {:async, fn ->
+          case Alfred.Journal.write_and_notify() do
+            {:ok, entry} ->
+              "Journal écrit. Humeur : #{entry["mood"] || "?"}."
+            {:error, reason} ->
+              "Erreur : #{inspect(reason)}"
+          end
+        end}
+
+      _ -> nil
+    end
+  rescue
+    _ -> "Erreur lors de la consultation du journal."
+  end
+
   defp execute_command("system", args, _state) do
     case args do
       [] ->
@@ -725,6 +785,9 @@ defmodule Alfred.Simplex.Bridge do
     /brain — Briefing du cerveau (Julia)
     /cortex — Productivité (R)
     /soul — Traits d'âme et convictions
+    /journal — Dernière entrée du journal
+    /journal list — Entrées récentes
+    /journal write — Écrire maintenant
     /system — Info système (machine, RAM)
     /system disk — Utilisation des disques
     /system memory — Détail mémoire et swap

@@ -40,7 +40,7 @@ defmodule Alfred.Simplex.CommandParserTest do
     end
 
     test "all known commands parse correctly" do
-      commands = ~w(status report library health help brain cortex soul system)
+      commands = ~w(status report library health help brain cortex soul system journal)
 
       for cmd <- commands do
         assert {:command, ^cmd, []} = CommandParser.parse("/#{cmd}")

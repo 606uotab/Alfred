@@ -46,7 +46,9 @@ defmodule Alfred.Daemon do
       last_check: nil,
       notifications: [],
       reminders_notified: 0,
-      last_report_date: nil
+      last_report_date: nil,
+      last_reading_date: nil,
+      last_journal_date: nil
     }
 
     {:ok, state}
@@ -125,16 +127,18 @@ defmodule Alfred.Daemon do
       safe_run(fn -> Alfred.Initiative.check_and_act() end)
     end
 
-    # 8. Lecture hebdomadaire (1x/jour = 1440 checks, offset 60 pour ~1h après démarrage)
-    if count > 0 and rem(count, 1440) == 60 do
-      safe_run(fn ->
-        case Alfred.Chat.Commands.authenticate() do
-          {:ok, token, _, _} ->
-            Alfred.Library.Scheduler.tick(token)
-          _ -> :ok
-        end
-      end)
+    # 8. Lecture quotidienne à 14h (vérifie toutes les 5 min, anti-double par date)
+    if count > 0 and rem(count, 5) == 0 do
+      safe_run(fn -> check_daily_reading() end)
     end
+
+    # 9. Journal intime à 22h (vérifie toutes les 5 min, anti-double par date)
+    state =
+      if count > 0 and rem(count, 5) == 0 do
+        check_journal(%{state | check_count: count, last_check: now})
+      else
+        state
+      end
 
     %{state |
       check_count: count,
@@ -166,6 +170,47 @@ defmodule Alfred.Daemon do
       IO.puts("[Daemon] Envoi du rapport quotidien")
       safe_run(fn -> Alfred.DailyReport.generate_and_send() end)
       %{state | last_report_date: today}
+    else
+      state
+    end
+  end
+
+  defp check_daily_reading do
+    today = Date.utc_today() |> Date.to_iso8601()
+    hour = DateTime.utc_now().hour
+
+    # Lire à 14h, une fois par jour
+    if hour >= 14 do
+      # Vérifier si déjà lu aujourd'hui via les logs
+      already_read = case Alfred.Library.State.load_current() do
+        nil -> true  # pas de livre → rien à faire
+        state ->
+          logs = state["daily_logs"] || []
+          Enum.any?(logs, fn log -> log["date"] == today end)
+      end
+
+      unless already_read do
+        IO.puts("[Daemon] Lecture quotidienne")
+        case Alfred.Chat.Commands.authenticate() do
+          {:ok, token, _, _} -> Alfred.Library.Scheduler.tick(token)
+          _ -> :ok
+        end
+      end
+    end
+  end
+
+  defp check_journal(state) do
+    now = DateTime.utc_now()
+    today = Date.utc_today() |> Date.to_iso8601()
+    hour = now.hour
+
+    already_written = state.last_journal_date == today
+    past_journal_time = hour >= 22
+
+    if past_journal_time and not already_written do
+      IO.puts("[Daemon] Écriture du journal intime")
+      safe_run(fn -> Alfred.Journal.write_and_notify() end)
+      %{state | last_journal_date: today}
     else
       state
     end
