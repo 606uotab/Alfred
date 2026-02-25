@@ -49,7 +49,10 @@ defmodule Alfred.DailyReport do
       "patterns" => pattern_metrics(),
       "reading" => reading_metrics(),
       "messages" => message_metrics(),
-      "reminders" => reminder_metrics()
+      "reminders" => reminder_metrics(),
+      "soul" => soul_metrics(),
+      "brain" => brain_metrics(),
+      "cortex" => cortex_metrics()
     }
   end
 
@@ -146,6 +149,61 @@ defmodule Alfred.DailyReport do
     _ -> %{"pending" => 0}
   end
 
+  defp soul_metrics do
+    soul = Alfred.Soul.State.load()
+    convictions = Alfred.Soul.Convictions.load()
+    all_conv = convictions["convictions"] || []
+    mature = Enum.count(all_conv, fn c -> (c["confidence"] || 0) >= 0.6 end)
+
+    %{
+      "mood" => soul.mood,
+      "traits" => soul.traits,
+      "total_convictions" => length(all_conv),
+      "mature_convictions" => mature
+    }
+  rescue
+    _ -> %{"mood" => "?", "total_convictions" => 0, "mature_convictions" => 0}
+  end
+
+  defp brain_metrics do
+    projects = Alfred.ProjectData.all_for_startup()
+
+    case Alfred.Brain.Port.send_command(%{
+           cmd: "suggest",
+           projects: projects,
+           now: DateTime.utc_now() |> DateTime.to_iso8601()
+         }) do
+      {:ok, resp} -> %{"suggestions" => resp["suggestions"] || []}
+      _ -> %{"suggestions" => []}
+    end
+  rescue
+    _ -> %{"suggestions" => []}
+  end
+
+  defp cortex_metrics do
+    projects = Alfred.ProjectData.all_for_startup()
+    episodes = Episodic.list_episodes()
+    facts = Semantic.all_facts()
+
+    case Alfred.Cortex.Port.send_command(%{
+           cmd: "productivity_stats",
+           projects: projects,
+           episodes: episodes,
+           facts: facts
+         }) do
+      {:ok, resp} ->
+        %{
+          "completion_rate" => resp["completion_rate"],
+          "summary" => resp["summary"]
+        }
+
+      _ ->
+        %{}
+    end
+  rescue
+    _ -> %{}
+  end
+
   # -- Formatage --
 
   defp format_report(report) do
@@ -206,6 +264,35 @@ defmodule Alfred.DailyReport do
 
     # Mémoire
     lines = lines ++ ["", "Mémoire : #{knowledge["total_facts"]} fait(s), #{knowledge["active_patterns"]} pattern(s)."]
+
+    # Âme
+    soul = report["soul"] || %{}
+    lines =
+      if soul["total_convictions"] && soul["total_convictions"] > 0 do
+        lines ++ ["Âme : humeur \"#{soul["mood"]}\", #{soul["mature_convictions"]} conviction(s) mûre(s) / #{soul["total_convictions"]}."]
+      else
+        lines
+      end
+
+    # Cerveau (Julia)
+    brain = report["brain"] || %{}
+    suggestions = brain["suggestions"] || []
+    lines =
+      if suggestions != [] do
+        lines ++ ["", "Cerveau : #{length(suggestions)} suggestion(s)."] ++
+          Enum.map(Enum.take(suggestions, 3), fn s -> "  - #{s}" end)
+      else
+        lines
+      end
+
+    # Cortex (R)
+    cortex = report["cortex"] || %{}
+    lines =
+      if cortex["summary"] do
+        lines ++ ["", "Cortex : #{cortex["summary"]}"]
+      else
+        lines
+      end
 
     Enum.join(lines, "\n")
   end

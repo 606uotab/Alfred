@@ -17,6 +17,8 @@ defmodule Alfred.Initiative do
     |> check_stale_tasks(today)
     |> check_unread_library(today)
     |> check_pending_learn(today)
+    |> check_brain_suggestions(today)
+    |> check_cortex_trends(today)
     |> save_cooldowns()
   end
 
@@ -146,6 +148,69 @@ defmodule Alfred.Initiative do
         else
           cooldowns
         end
+    end
+  rescue
+    _ -> cooldowns
+  end
+
+  # -- Suggestions du cerveau (Julia, 1x/jour) --
+
+  defp check_brain_suggestions(cooldowns, today) do
+    if already_notified?(cooldowns, "brain", today), do: cooldowns, else: do_check_brain(cooldowns, today)
+  end
+
+  defp do_check_brain(cooldowns, today) do
+    projects = Alfred.ProjectData.all_for_startup()
+
+    case Alfred.Brain.Port.send_command(%{
+           cmd: "suggest",
+           projects: projects,
+           now: DateTime.utc_now() |> DateTime.to_iso8601()
+         }) do
+      {:ok, %{"suggestions" => suggestions}} when suggestions != [] ->
+        text =
+          "Suggestions du cerveau :\n" <>
+            Enum.map_join(Enum.take(suggestions, 3), "\n", &"  - #{&1}")
+
+        notify(text)
+        mark_notified(cooldowns, "brain", today)
+
+      _ ->
+        cooldowns
+    end
+  rescue
+    _ -> cooldowns
+  end
+
+  # -- Tendances cortex (R, 1x/jour) --
+
+  defp check_cortex_trends(cooldowns, today) do
+    if already_notified?(cooldowns, "cortex", today), do: cooldowns, else: do_check_cortex(cooldowns, today)
+  end
+
+  defp do_check_cortex(cooldowns, today) do
+    projects = Alfred.ProjectData.all_for_startup()
+    episodes = Alfred.Memory.Episodic.list_episodes()
+    facts = Alfred.Memory.Semantic.all_facts()
+
+    case Alfred.Cortex.Port.send_command(%{
+           cmd: "productivity_stats",
+           projects: projects,
+           episodes: episodes,
+           facts: facts
+         }) do
+      {:ok, resp} ->
+        summary = resp["summary"]
+
+        if summary do
+          notify("Cortex : #{summary}")
+          mark_notified(cooldowns, "cortex", today)
+        else
+          cooldowns
+        end
+
+      _ ->
+        cooldowns
     end
   rescue
     _ -> cooldowns

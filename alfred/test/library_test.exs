@@ -6,21 +6,37 @@ defmodule Alfred.LibraryTest do
   setup do
     Alfred.Storage.Local.ensure_data_dir!()
 
-    # Clean library state
+    # Backup & clean library state (restore on exit)
     library_dir = Path.join([System.user_home!(), ".alfred", "data", "library"])
     state_path = Path.join(library_dir, "reading_state.json")
     history_path = Path.join(library_dir, "history.json")
+    state_backup = File.read(state_path)
+    history_backup = File.read(history_path)
     File.rm(state_path)
     File.rm(history_path)
 
+    on_exit(fn ->
+      case state_backup do
+        {:ok, content} -> File.write!(state_path, content)
+        _ -> :ok
+      end
+
+      case history_backup do
+        {:ok, content} -> File.write!(history_path, content)
+        _ -> :ok
+      end
+    end)
+
     case Process.whereis(Alfred.Supervisor) do
       nil -> :ok
-      pid -> Supervisor.stop(pid)
+      pid when is_pid(pid) ->
+        if Process.alive?(pid), do: Supervisor.stop(pid)
     end
 
     case GenServer.whereis(:alfred_scheduler) do
       nil -> :ok
-      pid -> GenServer.stop(pid)
+      pid when is_pid(pid) ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
     end
 
     {:ok, _} = Alfred.Application.start()

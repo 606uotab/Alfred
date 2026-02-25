@@ -9,7 +9,8 @@ defmodule Alfred.SchedulerTest do
     # Restart the scheduler to get a clean state
     case GenServer.whereis(:alfred_scheduler) do
       nil -> :ok
-      pid -> GenServer.stop(pid)
+      pid when is_pid(pid) ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
     end
 
     {:ok, _} = :alfred_scheduler.start_link()

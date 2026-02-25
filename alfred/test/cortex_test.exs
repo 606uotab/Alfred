@@ -9,12 +9,14 @@ defmodule Alfred.CortexTest do
     # Ensure scheduler is running for CLI tests
     case Process.whereis(Alfred.Supervisor) do
       nil -> :ok
-      pid -> Supervisor.stop(pid)
+      pid when is_pid(pid) ->
+        if Process.alive?(pid), do: Supervisor.stop(pid)
     end
 
     case GenServer.whereis(:alfred_scheduler) do
       nil -> :ok
-      pid -> GenServer.stop(pid)
+      pid when is_pid(pid) ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
     end
 
     {:ok, _} = Alfred.Application.start()

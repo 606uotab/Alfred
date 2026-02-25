@@ -5,7 +5,15 @@ defmodule Alfred.SimplexTest do
     Alfred.Storage.Local.ensure_data_dir!()
 
     config_path = Path.join([System.user_home!(), ".alfred", "data", "simplex_config.json"])
+    backup = File.read(config_path)
     File.rm(config_path)
+
+    on_exit(fn ->
+      case backup do
+        {:ok, content} -> File.write!(config_path, content)
+        _ -> :ok
+      end
+    end)
 
     if Process.whereis(Alfred.Simplex.Bridge) do
       try do

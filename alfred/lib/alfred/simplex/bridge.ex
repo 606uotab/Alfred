@@ -394,18 +394,7 @@ defmodule Alfred.Simplex.Bridge do
   # -- Commandes SimpleX (/status, /report, etc.) --
 
   defp parse_simplex_command(text) do
-    text = String.trim(text)
-
-    if String.starts_with?(text, "/") do
-      parts = text |> String.slice(1..-1//1) |> String.split()
-
-      case parts do
-        [cmd | args] -> {:command, String.downcase(cmd), args}
-        _ -> :not_command
-      end
-    else
-      :not_command
-    end
+    Alfred.Simplex.CommandParser.parse(text)
   end
 
   defp handle_simplex_command(cmd, args, state, context) do
@@ -415,6 +404,36 @@ defmodule Alfred.Simplex.Bridge do
         text = "/" <> cmd <> if(args != [], do: " " <> Enum.join(args, " "), else: "")
         {target, ctx} = command_context_to_msg(context)
         enqueue_message(state, %{target: target, text: text, context: ctx})
+
+      {:async, fun} ->
+        # Commande lente → message d'attente + exécution dans un Task séparé
+        IO.puts("[Bridge] Commande /#{cmd} async...")
+        send_command_reply(state, context, "Un instant, je réfléchis...")
+        socket = state.socket
+
+        Task.start(fn ->
+          result =
+            try do
+              fun.()
+            rescue
+              e ->
+                IO.puts("[Bridge] Erreur async /#{cmd}: #{Exception.message(e)}")
+                "Erreur : #{Exception.message(e)}"
+            end
+
+          if socket && result do
+            try do
+              case context do
+                {:group, g} -> Client.send_group_message(socket, g, result)
+                {:direct, c} -> Client.send_direct_message(socket, c, result)
+              end
+            catch
+              _, _ -> :ok
+            end
+          end
+        end)
+
+        state
 
       reply ->
         IO.puts("[Bridge] Commande /#{cmd} exécutée")
@@ -453,34 +472,68 @@ defmodule Alfred.Simplex.Bridge do
     _ -> "Erreur lors de la génération du rapport."
   end
 
-  defp execute_command("library", args, _state) do
+  defp execute_command("library", args, state) do
     case args do
       [] ->
-        # Afficher l'état de lecture actuel
-        case Alfred.Library.State.load_current() do
-          nil ->
-            books_read = Alfred.Library.State.books_read_count()
+        lines = []
 
-            if books_read > 0 do
-              "Aucune lecture en cours. #{books_read} livre(s) lu(s) au total."
-            else
-              "Aucune lecture en cours."
-            end
+        # Lecture en cours
+        lines =
+          case Alfred.Library.State.load_current() do
+            nil ->
+              lines ++ ["Aucune lecture en cours."]
 
-          reading_state ->
-            book = reading_state["current_book"]
-            day = Alfred.Library.State.current_day()
-            logs = reading_state["daily_logs"] || []
-            pages_read = length(logs) * (book["pages_per_day"] || 0)
-            total = book["total_pages"] || 0
-            pct = if total > 0, do: round(pages_read / total * 100), else: 0
+            reading_state ->
+              book = reading_state["current_book"]
+              day = Alfred.Library.State.current_day()
+              logs = reading_state["daily_logs"] || []
+              pages_read = length(logs) * (book["pages_per_day"] || 0)
+              total = book["total_pages"] || 0
+              pct = if total > 0, do: round(pages_read / total * 100), else: 0
 
-            "Lecture en cours : \"#{book["title"]}\" de #{book["author"]}\n" <>
-              "Jour #{day}/7 — #{pct}% lu (#{pages_read}/#{total} pages)"
-        end
+              lines ++ ["Lecture en cours : \"#{book["title"]}\" de #{book["author"]}",
+                         "Jour #{day}/7 — #{pct}% lu (#{pages_read}/#{total} pages)"]
+          end
+
+        # Historique
+        history = Alfred.Library.State.load_history()
+
+        lines =
+          if history != [] do
+            books =
+              history
+              |> Enum.take(5)
+              |> Enum.map(fn h -> "  - \"#{h["title"]}\" de #{h["author"]}" end)
+
+            lines ++ ["", "Livres lus (#{length(history)}) :"] ++ books ++
+              if length(history) > 5, do: ["  ...et #{length(history) - 5} autre(s)."], else: []
+          else
+            lines
+          end
+
+        Enum.join(lines, "\n")
+
+      ["next"] ->
+        {:async, fn ->
+          case Alfred.Library.Scheduler.start_next_book(state.token) do
+            {:ok, reading_state} ->
+              book = reading_state["current_book"]
+              "Nouveau livre : \"#{book["title"]}\" de #{book["author"]}. Bonne lecture !"
+
+            {:error, reason} ->
+              "Erreur : #{inspect(reason)}"
+          end
+        end}
+
+      ["read"] ->
+        {:async, fn ->
+          case Alfred.Library.Scheduler.read_now(state.token) do
+            {:ok, _} -> "Lecture du jour terminée."
+            {:error, reason} -> "Erreur : #{inspect(reason)}"
+          end
+        end}
 
       _ ->
-        # Sous-commandes (next, read) nécessitent Mistral → nil
         nil
     end
   rescue
@@ -506,12 +559,81 @@ defmodule Alfred.Simplex.Bridge do
     _ -> "Erreur lors du diagnostic."
   end
 
+  defp execute_command("brain", _, _state) do
+    {:async, fn ->
+      projects = Alfred.ProjectData.all_for_brain()
+      episodes = Alfred.Memory.Episodic.list_episodes() |> Enum.take(-20)
+      facts = Alfred.Memory.Semantic.all_facts()
+
+      case Alfred.Brain.Port.send_command(%{
+             cmd: "briefing",
+             projects: projects,
+             episodes: episodes,
+             facts: facts,
+             culture: [],
+             reminders: [],
+             now: DateTime.utc_now() |> DateTime.to_iso8601()
+           }) do
+        {:ok, resp} -> resp["briefing"] || "Aucune analyse disponible."
+        {:error, msg} -> "Cerveau indisponible : #{msg}"
+      end
+    end}
+  end
+
+  defp execute_command("cortex", _, _state) do
+    {:async, fn ->
+      projects = Alfred.ProjectData.all_for_startup()
+      episodes = Alfred.Memory.Episodic.list_episodes()
+      facts = Alfred.Memory.Semantic.all_facts()
+
+      case Alfred.Cortex.Port.send_command(%{
+             cmd: "productivity_stats",
+             projects: projects,
+             episodes: episodes,
+             facts: facts
+           }) do
+        {:ok, resp} ->
+          format_cortex_productivity(resp)
+
+        {:error, msg} ->
+          "Cortex indisponible : #{msg}"
+      end
+    end}
+  end
+
+  defp execute_command("soul", _, _state) do
+    soul = Alfred.Soul.State.load()
+    convictions = Alfred.Soul.Convictions.load()
+    traits = soul.traits
+    all_conv = convictions["convictions"] || []
+    mature = Enum.count(all_conv, fn c -> (c["confidence"] || 0) >= 0.6 end)
+
+    lines = ["Âme d'Alfred :", ""]
+
+    lines =
+      lines ++
+        Enum.map(traits, fn {k, v} ->
+          "  #{k}: #{round(v * 100)}%"
+        end)
+
+    lines = lines ++ ["", "Convictions : #{mature} mûre(s) / #{length(all_conv)} total", "Humeur : #{soul.mood}"]
+
+    Enum.join(lines, "\n")
+  rescue
+    _ -> "Erreur lors de la consultation de l'âme."
+  end
+
   defp execute_command("help", _, _) do
     """
     Commandes disponibles :
-    /status — État d'Alfred (daemon, bridge, mémoire)
+    /status — État d'Alfred
     /report — Rapport d'activité du jour
-    /library — Livre en cours et progression
+    /library — Livre en cours
+    /library next — Commencer un nouveau livre
+    /library read — Lire la portion du jour
+    /brain — Briefing du cerveau (Julia)
+    /cortex — Productivité (R)
+    /soul — Traits d'âme et convictions
     /health — Diagnostic des organes
     /help — Cette aide
     """
@@ -535,6 +657,18 @@ defmodule Alfred.Simplex.Bridge do
 
   defp command_context_to_msg({:group, group}), do: {group, :group}
   defp command_context_to_msg({:direct, contact}), do: {contact, :direct}
+
+  defp format_cortex_productivity(resp) do
+    lines = ["Productivité Alfred :", ""]
+
+    if resp["completion_rate"] do
+      lines = lines ++ ["Taux de complétion : #{resp["completion_rate"]}%"]
+      lines = if resp["summary"], do: lines ++ [resp["summary"]], else: lines
+      Enum.join(lines, "\n")
+    else
+      resp["summary"] || "Pas de données de productivité."
+    end
+  end
 
   defp format_command_uptime(seconds) do
     cond do

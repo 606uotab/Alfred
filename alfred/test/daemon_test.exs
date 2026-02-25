@@ -6,17 +6,21 @@ defmodule Alfred.DaemonTest do
 
     case Process.whereis(Alfred.Supervisor) do
       nil -> :ok
-      pid -> Supervisor.stop(pid)
+      pid when is_pid(pid) ->
+        if Process.alive?(pid), do: Supervisor.stop(pid)
     end
 
     case GenServer.whereis(:alfred_scheduler) do
       nil -> :ok
-      pid -> GenServer.stop(pid)
+      pid when is_pid(pid) ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
     end
 
     # Stop daemon if running
-    if Process.whereis(Alfred.Daemon) do
-      GenServer.stop(Alfred.Daemon)
+    case Process.whereis(Alfred.Daemon) do
+      nil -> :ok
+      pid when is_pid(pid) ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
     end
 
     {:ok, _} = Alfred.Application.start()

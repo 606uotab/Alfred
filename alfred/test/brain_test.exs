@@ -16,13 +16,15 @@ defmodule Alfred.BrainTest do
     # Stop supervisor if running (which also stops scheduler)
     case Process.whereis(Alfred.Supervisor) do
       nil -> :ok
-      pid -> Supervisor.stop(pid)
+      pid when is_pid(pid) ->
+        if Process.alive?(pid), do: Supervisor.stop(pid)
     end
 
     # Stop standalone scheduler if running
     case GenServer.whereis(:alfred_scheduler) do
       nil -> :ok
-      pid -> GenServer.stop(pid)
+      pid when is_pid(pid) ->
+        if Process.alive?(pid), do: GenServer.stop(pid)
     end
 
     # Start via Application (like CLI does)

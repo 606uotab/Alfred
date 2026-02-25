@@ -167,6 +167,15 @@ defmodule Alfred.Chat.SystemPrompt do
         _ -> parts
       end
 
+    # Instruction lecture — l'état réel est lu dynamiquement, pas figé dans le prompt
+    parts =
+      parts ++
+        [
+          "\nIMPORTANT : Je ne dois JAMAIS inventer ce que je lis. " <>
+            "Si on me demande ce que je lis, je dois recommander la commande /library " <>
+            "qui donne l'état exact en temps réel."
+        ]
+
     Enum.join(parts, "\n")
   end
 

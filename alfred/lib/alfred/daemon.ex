@@ -39,8 +39,6 @@ defmodule Alfred.Daemon do
   @impl true
   def init(_opts) do
     schedule_check()
-    # Démarrer le bridge SimpleX si configuré
-    maybe_start_bridge()
 
     state = %{
       started_at: DateTime.utc_now(),
@@ -171,36 +169,6 @@ defmodule Alfred.Daemon do
     else
       state
     end
-  end
-
-  defp maybe_start_bridge do
-    alias Alfred.Simplex.Bridge
-
-    case Bridge.load_config() do
-      {:ok, config} ->
-        host = to_charlist(config["host"] || "localhost")
-        port = config["port"] || 5227
-
-        case :gen_tcp.connect(host, port, [], 2_000) do
-          {:ok, test_socket} ->
-            :gen_tcp.close(test_socket)
-
-            unless Bridge.running?() do
-              case Bridge.start_link(config) do
-                {:ok, _} -> IO.puts("  [Daemon] Bridge SimpleX démarré")
-                _ -> :ok
-              end
-            end
-
-          _ ->
-            IO.puts("  [Daemon] SimpleX Chat non accessible, bridge non démarré")
-        end
-
-      :no_config ->
-        :ok
-    end
-  rescue
-    _ -> :ok
   end
 
   defp format_uptime(seconds) do
