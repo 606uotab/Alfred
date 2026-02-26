@@ -22,11 +22,11 @@ defmodule Alfred.DailyReport do
     # Envoyer via SimpleX
     Alfred.Simplex.Bridge.send_group_notification(text)
 
-    IO.puts("[DailyReport] Rapport envoyé")
+    Alfred.Log.info("DailyReport", "Rapport envoyé")
     {:ok, report}
   rescue
     e ->
-      IO.puts("[DailyReport] Erreur: #{Exception.message(e)}")
+      Alfred.Log.error("DailyReport", Exception.message(e))
       {:error, Exception.message(e)}
   end
 

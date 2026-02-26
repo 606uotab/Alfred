@@ -106,9 +106,9 @@ defmodule Alfred.Simplex.Bridge do
     }
 
     if token do
-      IO.puts("  [Bridge] Mistral authentifié")
+      Alfred.Log.info("Bridge", "Mistral authentifié")
     else
-      IO.puts("  [Bridge] Mistral NON authentifié — les réponses seront désactivées")
+      Alfred.Log.info("Bridge", "Mistral NON authentifié — réponses désactivées")
     end
 
     send(self(), :connect)
@@ -161,11 +161,11 @@ defmodule Alfred.Simplex.Bridge do
 
     case Client.connect(to_charlist(host), port) do
       {:ok, socket} ->
-        IO.puts("[Bridge] Connecté à #{host}:#{port}")
+        Alfred.Log.info("Bridge", "Connecté à #{host}:#{port}")
         # Forcer la re-souscription aux groupes/contacts (critique après restart Tor)
         try do
           Client.send_command(socket, "/_resubscribe all")
-          IO.puts("[Bridge] Resubscribe envoyé")
+          Alfred.Log.info("Bridge", "Resubscribe envoyé")
         catch
           _, _ -> :ok
         end
@@ -224,7 +224,7 @@ defmodule Alfred.Simplex.Bridge do
 
   @impl true
   def handle_info({:worker_done, result}, state) do
-    IO.puts("[Bridge] Worker terminé")
+    Alfred.Log.debug("Bridge", "Worker terminé")
     # Arrêter de surveiller le process (flush le :DOWN s'il arrive)
     if state.worker_ref, do: Process.demonitor(state.worker_ref, [:flush])
     state = apply_worker_result(state, result)
@@ -234,7 +234,7 @@ defmodule Alfred.Simplex.Bridge do
   # Worker crashé avant d'envoyer :worker_done
   @impl true
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{worker_ref: ref} = state) do
-    IO.puts("[Bridge] Worker crash: #{inspect(reason)}")
+    Alfred.Log.error("Bridge", "Worker crash: #{inspect(reason)}")
     dispatch_next(%{state | busy: false, worker_ref: nil})
   end
 
@@ -279,13 +279,13 @@ defmodule Alfred.Simplex.Bridge do
 
   defp handle_frame({:text, payload}, state) do
     if state.config["debug"] do
-      IO.puts("[SimpleX debug] #{payload}")
+      Alfred.Log.debug("SimpleX", payload)
     end
 
     case Client.parse_response(payload) do
       {:event, resp} ->
         event_type = resp["type"] || get_in(resp, ["data", "type"]) || "?"
-        IO.puts("[Bridge] Event: #{event_type}")
+        Alfred.Log.debug("Bridge", "Event: #{event_type}")
         handle_event(resp, state)
 
       {:response, _corr_id, _resp} ->
@@ -322,7 +322,7 @@ defmodule Alfred.Simplex.Bridge do
   defp handle_event(resp, state) do
     case extract_incoming_message(resp) do
       {:ok, sender, text, :direct} ->
-        IO.puts("[Bridge] Message direct de #{sender}: #{String.slice(text, 0, 50)}")
+        Alfred.Log.info("Bridge", "Message direct de #{sender}: #{String.slice(text, 0, 50)}")
 
         case parse_simplex_command(text) do
           {:command, cmd, args} ->
@@ -335,7 +335,7 @@ defmodule Alfred.Simplex.Bridge do
         end
 
       {:ok, sender, text, {:group, group_name}} ->
-        IO.puts("[Bridge] Message groupe ##{group_name} de #{sender}: #{String.slice(text, 0, 50)}")
+        Alfred.Log.info("Bridge", "Message groupe ##{group_name} de #{sender}: #{String.slice(text, 0, 50)}")
 
         case parse_simplex_command(text) do
           {:command, cmd, args} ->
@@ -411,7 +411,7 @@ defmodule Alfred.Simplex.Bridge do
 
       {:async, fun} ->
         # Commande lente → message d'attente + exécution dans un Task séparé
-        IO.puts("[Bridge] Commande /#{cmd} async...")
+        Alfred.Log.info("Bridge", "Commande /#{cmd} async...")
         send_command_reply(state, context, "Un instant, je réfléchis...")
         socket = state.socket
 
@@ -421,7 +421,7 @@ defmodule Alfred.Simplex.Bridge do
               fun.()
             rescue
               e ->
-                IO.puts("[Bridge] Erreur async /#{cmd}: #{Exception.message(e)}")
+                Alfred.Log.error("Bridge", "Erreur async /#{cmd}: #{Exception.message(e)}")
                 "Erreur : #{Exception.message(e)}"
             end
 
@@ -440,7 +440,7 @@ defmodule Alfred.Simplex.Bridge do
         state
 
       reply ->
-        IO.puts("[Bridge] Commande /#{cmd} exécutée")
+        Alfred.Log.debug("Bridge", "Commande /#{cmd} exécutée")
         send_command_reply(state, context, reply)
         state
     end
@@ -922,7 +922,7 @@ defmodule Alfred.Simplex.Bridge do
           {:direct, contact} -> Client.send_direct_message(state.socket, contact, text)
         end
       catch
-        _, _ -> IO.puts("[Bridge] Erreur envoi réponse commande")
+        _, _ -> Alfred.Log.error("Bridge", "Erreur envoi réponse commande")
       end
     end
   end
@@ -965,11 +965,11 @@ defmodule Alfred.Simplex.Bridge do
 
   defp enqueue_message(state, msg) do
     if state.token == nil or state.session == nil do
-      IO.puts("[Bridge] Pas de token Mistral, message ignoré")
+      Alfred.Log.info("Bridge", "Pas de token Mistral, message ignoré")
       state
     else
       if state.busy do
-        IO.puts("[Bridge] Alfred occupé, message en file d'attente (queue: #{:queue.len(state.queue) + 1})")
+        Alfred.Log.debug("Bridge", "Message en file d'attente (queue: #{:queue.len(state.queue) + 1})")
         state = maybe_send_waiting(state, msg)
         %{state | queue: :queue.in(msg, state.queue)}
       else
@@ -979,7 +979,7 @@ defmodule Alfred.Simplex.Bridge do
   end
 
   defp dispatch_worker(state, msg) do
-    IO.puts("[Bridge] Dispatch worker pour: #{String.slice(msg.text, 0, 50)}")
+    Alfred.Log.debug("Bridge", "Dispatch worker pour: #{String.slice(msg.text, 0, 50)}")
     bridge_pid = self()
     socket = state.socket
     session = state.session
@@ -1001,7 +1001,7 @@ defmodule Alfred.Simplex.Bridge do
   defp dispatch_next(state) do
     case :queue.out(state.queue) do
       {{:value, next_msg}, new_queue} ->
-        IO.puts("[Bridge] Dépile message suivant (restant: #{:queue.len(new_queue)})")
+        Alfred.Log.debug("Bridge", "Dépile message suivant (restant: #{:queue.len(new_queue)})")
         state = %{state | queue: new_queue, busy: false, worker_ref: nil}
         {:noreply, dispatch_worker(state, next_msg)}
 
@@ -1032,11 +1032,11 @@ defmodule Alfred.Simplex.Bridge do
   # -- Worker : traitement du message (tourne dans un process séparé) --
 
   defp do_process_message(msg, socket, session, token, soul, culture, pending_learn) do
-    IO.puts("[Bridge] Envoi à Mistral...")
+    Alfred.Log.debug("Bridge", "Envoi à Mistral...")
 
     case Commands.send_message(session, token, msg.text, soul, culture) do
       {:ok, response, new_session} ->
-        IO.puts("[Bridge] Réponse Mistral reçue (#{String.length(response)} chars)")
+        Alfred.Log.debug("Bridge", "Réponse Mistral reçue (#{String.length(response)} chars)")
 
         # Envoyer la réponse via socket
         if socket do
@@ -1046,7 +1046,7 @@ defmodule Alfred.Simplex.Bridge do
               :direct -> Client.send_direct_message(socket, msg.target, response)
             end
           catch
-            _, _ -> IO.puts("[Bridge] Erreur envoi réponse")
+            _, _ -> Alfred.Log.error("Bridge", "Erreur envoi réponse")
           end
         end
 
@@ -1069,7 +1069,7 @@ defmodule Alfred.Simplex.Bridge do
         {:ok, new_session, new_pending}
 
       {:error, reason, new_session} ->
-        IO.puts("[Bridge] ERREUR Mistral: #{inspect(reason)}")
+        Alfred.Log.error("Bridge", "Erreur Mistral: #{inspect(reason)}")
 
         if socket do
           try do
@@ -1088,7 +1088,7 @@ defmodule Alfred.Simplex.Bridge do
     end
   rescue
     e ->
-      IO.puts("[Bridge] CRASH worker: #{Exception.message(e)}")
+      Alfred.Log.error("Bridge", "Crash worker: #{Exception.message(e)}")
       :crash
   end
 

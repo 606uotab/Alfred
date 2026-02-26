@@ -31,12 +31,12 @@ defmodule Alfred.News do
         {:ok, text}
 
       error ->
-        IO.puts("[News] Erreur briefing: #{inspect(error)}")
+        Alfred.Log.error("News", "Erreur briefing: #{inspect(error)}")
         error
     end
   rescue
     e ->
-      IO.puts("[News] Erreur: #{Exception.message(e)}")
+      Alfred.Log.error("News", Exception.message(e))
       {:error, Exception.message(e)}
   end
 

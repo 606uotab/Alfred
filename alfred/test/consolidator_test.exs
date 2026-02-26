@@ -5,20 +5,7 @@ defmodule Alfred.Memory.ConsolidatorTest do
 
   setup do
     Alfred.Storage.Local.ensure_data_dir!()
-
-    case Process.whereis(Alfred.Supervisor) do
-      nil -> :ok
-      pid when is_pid(pid) ->
-        if Process.alive?(pid), do: Supervisor.stop(pid)
-    end
-
-    case GenServer.whereis(:alfred_scheduler) do
-      nil -> :ok
-      pid when is_pid(pid) ->
-        if Process.alive?(pid), do: GenServer.stop(pid)
-    end
-
-    {:ok, _} = Alfred.Application.start()
+    Alfred.Storage.Local.ensure_subdir!("memory")
     :ok
   end
 

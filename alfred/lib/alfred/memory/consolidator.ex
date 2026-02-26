@@ -45,7 +45,7 @@ defmodule Alfred.Memory.Consolidator do
 
   @doc "Lance le pipeline avec un token Mistral optionnel."
   def run(token) do
-    IO.puts("[Consolidator] Début de la consolidation nocturne...")
+    Alfred.Log.info("Consolidator", "Début de la consolidation nocturne")
     start_time = System.monotonic_time(:millisecond)
 
     stats = %{
@@ -55,31 +55,31 @@ defmodule Alfred.Memory.Consolidator do
 
     # 1. Archiver les vieux épisodes
     {episodes_archived, episodes_total} = archive_old_episodes()
-    IO.puts("[Consolidator] Épisodes archivés : #{episodes_archived}/#{episodes_total}")
+    Alfred.Log.info("Consolidator", "Épisodes archivés : #{episodes_archived}/#{episodes_total}")
 
     # 2. Consolider les faits sémantiques
     facts_before = Semantic.count()
     Semantic.consolidate()
     facts_decayed = decay_stale_facts()
     facts_after = Semantic.count()
-    IO.puts("[Consolidator] Faits : #{facts_before} → #{facts_after} (#{facts_decayed} oubliés)")
+    Alfred.Log.info("Consolidator", "Faits : #{facts_before} → #{facts_after} (#{facts_decayed} oubliés)")
 
     # 3. Élaguer les patterns
     patterns_pruned = prune_old_patterns()
-    IO.puts("[Consolidator] Patterns élagués : #{patterns_pruned}")
+    Alfred.Log.info("Consolidator", "Patterns élagués : #{patterns_pruned}")
 
     # 4. Synthèse mémoire (si token disponible)
     synthesis_ok = if token do
       case generate_synthesis(token) do
         {:ok, _text} ->
-          IO.puts("[Consolidator] Synthèse mémoire générée")
+          Alfred.Log.info("Consolidator", "Synthèse mémoire générée")
           true
         {:error, reason} ->
-          IO.puts("[Consolidator] Synthèse échouée : #{inspect(reason)}")
+          Alfred.Log.error("Consolidator", "Synthèse échouée : #{inspect(reason)}")
           false
       end
     else
-      IO.puts("[Consolidator] Pas de token Mistral — synthèse ignorée")
+      Alfred.Log.info("Consolidator", "Pas de token Mistral — synthèse ignorée")
       false
     end
 
@@ -97,7 +97,7 @@ defmodule Alfred.Memory.Consolidator do
     })
 
     save_log(stats)
-    IO.puts("[Consolidator] Consolidation terminée en #{duration}ms")
+    Alfred.Log.info("Consolidator", "Consolidation terminée en #{duration}ms")
 
     # Notification
     text = "Consolidation nocturne terminée : #{episodes_archived} épisodes archivés, " <>
@@ -107,7 +107,7 @@ defmodule Alfred.Memory.Consolidator do
     {:ok, stats}
   rescue
     e ->
-      IO.puts("[Consolidator] Erreur : #{Exception.message(e)}")
+      Alfred.Log.error("Consolidator", Exception.message(e))
       {:error, Exception.message(e)}
   end
 

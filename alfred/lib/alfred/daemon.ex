@@ -185,7 +185,7 @@ defmodule Alfred.Daemon do
     past_report_time = hour > 17 or (hour == 17 and minute >= 30)
 
     if past_report_time and not already_sent do
-      IO.puts("[Daemon] Envoi du rapport quotidien")
+      Alfred.Log.info("Daemon", "Envoi du rapport quotidien")
       safe_run(fn -> Alfred.DailyReport.generate_and_send() end)
       %{state | last_report_date: today}
     else
@@ -201,7 +201,7 @@ defmodule Alfred.Daemon do
     past_time = hour >= 3 and hour < 6
 
     if past_time and not already_done do
-      IO.puts("[Daemon] Consolidation nocturne de la mémoire")
+      Alfred.Log.info("Daemon", "Consolidation nocturne de la mémoire")
       safe_run(fn -> Alfred.Memory.Consolidator.run() end)
       %{state | last_consolidation_date: today}
     else
@@ -224,7 +224,7 @@ defmodule Alfred.Daemon do
       end
 
       unless already_read do
-        IO.puts("[Daemon] Lecture quotidienne")
+        Alfred.Log.info("Daemon", "Lecture quotidienne")
         case Alfred.Chat.Commands.authenticate() do
           {:ok, token, _, _} -> Alfred.Library.Scheduler.tick(token)
           _ -> :ok
@@ -242,7 +242,7 @@ defmodule Alfred.Daemon do
     past_journal_time = hour >= 22
 
     if past_journal_time and not already_written do
-      IO.puts("[Daemon] Écriture du journal intime")
+      Alfred.Log.info("Daemon", "Écriture du journal intime")
       safe_run(fn -> Alfred.Journal.write_and_notify() end)
       %{state | last_journal_date: today}
     else
@@ -258,7 +258,7 @@ defmodule Alfred.Daemon do
     past_time = hour >= 8 and hour < 12
 
     if past_time and not already_done do
-      IO.puts("[Daemon] Briefing matinal des news")
+      Alfred.Log.info("Daemon", "Briefing matinal des news")
       safe_run(fn -> Alfred.News.briefing_and_notify() end)
       %{state | last_news_date: today}
     else

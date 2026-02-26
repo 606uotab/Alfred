@@ -14,11 +14,11 @@ defmodule Alfred.Library.Scheduler do
   Point d'entrée quotidien — le daemon appelle tick/1 une fois par jour.
   """
   def tick(token) do
-    IO.puts("[Library] Tick quotidien")
+    Alfred.Log.info("Library", "Tick quotidien")
 
     if State.reading_in_progress?() do
       day = State.current_day()
-      IO.puts("[Library] Jour #{day} de lecture")
+      Alfred.Log.info("Library", "Jour #{day} de lecture")
 
       cond do
         day in 1..6 ->
@@ -36,7 +36,7 @@ defmodule Alfred.Library.Scheduler do
     end
   rescue
     e ->
-      IO.puts("[Library] Erreur: #{Exception.message(e)}")
+      Alfred.Log.error("Library", Exception.message(e))
       :error
   end
 
@@ -67,31 +67,31 @@ defmodule Alfred.Library.Scheduler do
   # -- Privé --
 
   defp pick_and_start_book(token) do
-    IO.puts("[Library] Recherche d'un nouveau livre...")
+    Alfred.Log.info("Library", "Recherche d'un nouveau livre...")
     history_ids = State.read_book_ids()
 
     case Downloader.pick_random(history_ids) do
       {:ok, book, genre} ->
-        IO.puts("[Library] Livre trouvé: #{book.title} par #{book.author}")
+        Alfred.Log.info("Library", "Livre trouvé: #{book.title} par #{book.author}")
 
         # Détecter la langue originale
         {original_lang, chosen_lang} = detect_and_choose_language(book, token)
-        IO.puts("[Library] Langue originale: #{original_lang}, lecture en: #{chosen_lang}")
+        Alfred.Log.info("Library", "Langue originale: #{original_lang}, lecture en: #{chosen_lang}")
 
         # Télécharger
         case Downloader.download(book.id, chosen_lang) do
           {:ok, file_path} ->
-            IO.puts("[Library] Téléchargé: #{file_path}")
+            Alfred.Log.info("Library", "Téléchargé: #{file_path}")
 
             # Lire et paginer
             case Reader.read(file_path) do
               {:ok, text} ->
                 pages = Reader.paginate(text)
                 total_pages = length(pages)
-                IO.puts("[Library] #{total_pages} pages (#{Reader.word_count(text)} mots)")
+                Alfred.Log.info("Library", "#{total_pages} pages (#{Reader.word_count(text)} mots)")
 
                 if total_pages < 5 do
-                  IO.puts("[Library] Livre trop court, on en cherche un autre")
+                  Alfred.Log.info("Library", "Livre trop court, on en cherche un autre")
                   File.rm(file_path)
                   pick_and_start_book(token)
                 else
@@ -109,17 +109,17 @@ defmodule Alfred.Library.Scheduler do
                 end
 
               {:error, reason} ->
-                IO.puts("[Library] Erreur lecture: #{reason}")
+                Alfred.Log.error("Library", "Erreur lecture: #{reason}")
                 {:error, reason}
             end
 
           {:error, reason} ->
-            IO.puts("[Library] Erreur téléchargement: #{reason}")
+            Alfred.Log.error("Library", "Erreur téléchargement: #{reason}")
             {:error, reason}
         end
 
       {:error, reason} ->
-        IO.puts("[Library] Erreur recherche: #{reason}")
+        Alfred.Log.error("Library", "Erreur recherche: #{reason}")
         {:error, reason}
     end
   end
@@ -145,7 +145,7 @@ defmodule Alfred.Library.Scheduler do
     already_read = Enum.any?(state["daily_logs"] || [], fn l -> l["day"] == day end)
 
     if already_read do
-      IO.puts("[Library] Jour #{day} déjà lu")
+      Alfred.Log.info("Library", "Jour #{day} déjà lu")
       {:ok, :already_read}
     else
       # Lire le fichier et extraire les pages du jour
@@ -158,7 +158,7 @@ defmodule Alfred.Library.Scheduler do
 
           case Reader.pages_for_day(pages, day) do
             {:ok, day_text, page_start, page_end} ->
-              IO.puts("[Library] Lecture jour #{day}: pages #{page_start}-#{page_end}")
+              Alfred.Log.info("Library", "Lecture jour #{day}: pages #{page_start}-#{page_end}")
 
               book_info = %{
                 "title" => book["title"],
@@ -172,12 +172,12 @@ defmodule Alfred.Library.Scheduler do
 
               case Analyzer.analyze_daily(day_text, book_info, previous, token) do
                 {:ok, analysis} ->
-                  IO.puts("[Library] Analyse jour #{day} terminée")
+                  Alfred.Log.info("Library", "Analyse jour #{day} terminée")
                   State.add_daily_log(day, page_start, page_end, analysis)
                   {:ok, analysis}
 
                 {:error, reason} ->
-                  IO.puts("[Library] Erreur analyse: #{reason}")
+                  Alfred.Log.error("Library", "Erreur analyse: #{reason}")
                   # Sauvegarder un log minimal même sans analyse
                   State.add_daily_log(day, page_start, page_end, %{
                     "resume" => "(analyse indisponible)",
@@ -189,12 +189,12 @@ defmodule Alfred.Library.Scheduler do
               end
 
             {:error, :no_more_pages} ->
-              IO.puts("[Library] Plus de pages à lire")
+              Alfred.Log.info("Library", "Plus de pages à lire")
               {:ok, :finished_early}
           end
 
         {:error, reason} ->
-          IO.puts("[Library] Erreur lecture fichier: #{reason}")
+          Alfred.Log.error("Library", "Erreur lecture fichier: #{reason}")
           {:error, reason}
       end
     end
@@ -205,7 +205,7 @@ defmodule Alfred.Library.Scheduler do
     book = state["current_book"]
     daily_logs = state["daily_logs"] || []
 
-    IO.puts("[Library] Génération du rapport pour \"#{book["title"]}\"")
+    Alfred.Log.info("Library", "Génération du rapport pour \"#{book["title"]}\"")
 
     book_info = %{
       "title" => book["title"],
@@ -230,11 +230,11 @@ defmodule Alfred.Library.Scheduler do
         report_text = format_report_for_simplex(book, report)
         notify(report_text)
 
-        IO.puts("[Library] Rapport généré et envoyé")
+        Alfred.Log.info("Library", "Rapport généré et envoyé")
         {:ok, report}
 
       {:error, reason} ->
-        IO.puts("[Library] Erreur rapport: #{reason}")
+        Alfred.Log.error("Library", "Erreur rapport: #{reason}")
         {:error, reason}
     end
   end
@@ -264,7 +264,7 @@ defmodule Alfred.Library.Scheduler do
       # Effacer l'état de lecture
       State.clear_current()
 
-      IO.puts("[Library] Livre finalisé: #{book["title"]}")
+      Alfred.Log.info("Library", "Livre finalisé: #{book["title"]}")
     end
   end
 

@@ -242,12 +242,12 @@ defmodule Alfred.Initiative do
 
   defp notify(text) do
     if Alfred.Initiative.Smart.should_notify_now?() do
-      IO.puts("[Initiative] #{text}")
+      Alfred.Log.info("Initiative", text)
       Alfred.Simplex.Bridge.send_group_notification(text)
       Alfred.Voice.speak(text)
       Alfred.Initiative.Smart.log_interaction("notification_sent", "initiative")
     else
-      IO.puts("[Initiative] Notification différée (hors fenêtre optimale)")
+      Alfred.Log.debug("Initiative", "Notification différée (hors fenêtre optimale)")
     end
   end
 
