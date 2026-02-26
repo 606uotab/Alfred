@@ -49,7 +49,8 @@ defmodule Alfred.Daemon do
       last_report_date: nil,
       last_reading_date: nil,
       last_journal_date: nil,
-      last_consolidation_date: nil
+      last_consolidation_date: nil,
+      last_news_date: nil
     }
 
     {:ok, state}
@@ -149,6 +150,14 @@ defmodule Alfred.Daemon do
         state
       end
 
+    # 11. Briefing news à 8h (vérifie toutes les 5 min, anti-double par date)
+    state =
+      if count > 0 and rem(count, 5) == 0 do
+        check_news(%{state | check_count: count, last_check: now})
+      else
+        state
+      end
+
     %{state |
       check_count: count,
       last_check: now
@@ -236,6 +245,22 @@ defmodule Alfred.Daemon do
       IO.puts("[Daemon] Écriture du journal intime")
       safe_run(fn -> Alfred.Journal.write_and_notify() end)
       %{state | last_journal_date: today}
+    else
+      state
+    end
+  end
+
+  defp check_news(state) do
+    today = Date.utc_today() |> Date.to_iso8601()
+    hour = DateTime.utc_now().hour
+
+    already_done = state.last_news_date == today
+    past_time = hour >= 8 and hour < 12
+
+    if past_time and not already_done do
+      IO.puts("[Daemon] Briefing matinal des news")
+      safe_run(fn -> Alfred.News.briefing_and_notify() end)
+      %{state | last_news_date: today}
     else
       state
     end

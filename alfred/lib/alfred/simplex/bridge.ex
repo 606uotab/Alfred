@@ -627,6 +627,32 @@ defmodule Alfred.Simplex.Bridge do
     _ -> "Erreur lors de la consultation de l'âme."
   end
 
+  defp execute_command("news", args, _state) do
+    case args do
+      [] ->
+        case Alfred.News.load_latest() do
+          nil -> "Aucun briefing disponible. Tapez /news refresh"
+          data ->
+            date = data["date"] || "?"
+            count = data["article_count"] || 0
+            briefing = data["briefing"] || "(vide)"
+            "Briefing du #{date} (#{count} articles) :\n\n#{briefing}"
+        end
+
+      ["refresh"] ->
+        {:async, fn ->
+          case Alfred.News.briefing() do
+            {:ok, text} -> "Briefing frais :\n\n#{text}"
+            {:error, reason} -> "Erreur : #{inspect(reason)}"
+          end
+        end}
+
+      _ -> nil
+    end
+  rescue
+    _ -> "Erreur lors de la consultation des news."
+  end
+
   defp execute_command("dashboard", _, _state) do
     if Alfred.Dashboard.Server.running?() do
       port = Alfred.Dashboard.Server.port()
@@ -871,6 +897,8 @@ defmodule Alfred.Simplex.Bridge do
     /voice say <texte> — Parler
     /memory — Stats mémoire
     /memory consolidate — Consolider la mémoire
+    /news — Briefing matinal des infos
+    /news refresh — Générer un briefing frais
     /journal — Dernière entrée du journal
     /journal list — Entrées récentes
     /journal write — Écrire maintenant

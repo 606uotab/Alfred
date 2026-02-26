@@ -136,6 +136,9 @@ defmodule Alfred.CLI do
       ["library" | lib_args] ->
         Alfred.Library.Commands.handle(lib_args)
 
+      ["news" | news_args] ->
+        Alfred.News.Commands.handle(news_args)
+
       ["journal" | journal_args] ->
         Alfred.Journal.Commands.handle(journal_args)
 
@@ -905,6 +908,11 @@ defmodule Alfred.CLI do
       alfred library report                        Rapports de lecture
       alfred library next                          Commencer un nouveau livre
       alfred library read                          Lire la portion du jour
+
+      alfred news                                Dernier briefing matinal
+      alfred news refresh                         Générer un nouveau briefing
+      alfred news list                            Briefings archivés
+      alfred news show YYYY-MM-DD                 Briefing d'une date
 
       alfred journal                              Dernière entrée du journal
       alfred journal list                         Entrées récentes
