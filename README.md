@@ -4,13 +4,12 @@ Un etre numerique polyglotte avec une architecture organique en 6 langages.
 Il converse, execute des commandes, apprend de chaque interaction, et evolue au fil du temps.
 
 ```
-$ alfred
-
-  🎩 Alfred : Bonjour Monsieur. Comment puis-je vous etre utile ce matin ?
-
-  ── Aperçu rapide ──
-  3 projet(s), 5 tâche(s) en attente, 2 rappel(s)
-  📊 50% d'accomplissement global
+$ alfred daemon
+  Mot de passe : ********
+  🎩 Alfred : Bien, Monsieur. Demarrage d'Alfred...
+  ✓ Alfred demarre (PID 42)
+    Log  : ~/.alfred/alfred.log
+    Stop : alfred daemon stop
 ```
 
 ## Anatomie
@@ -20,19 +19,19 @@ $ alfred
             │                       │
          Ada ←──┐                   │
            R ←──┤                   │
-       Julia ←──┼─── Elixir (coeur) ←──→ Maître (CLI / Shell / SimpleX)
+       Julia ←──┼─── Elixir (coeur) ←──→ Maitre (CLI / Shell / SimpleX)
       Erlang ←──┤    (orchestre tout)
          Zig ←──┘
 ```
 
-| Organe | Langage | Rôle | Lignes |
+| Organe | Langage | Role | Lignes |
 |--------|---------|------|--------|
-| **Coeur** | Elixir | Hub central, CLI, chat, memoire, orchestration | 11 519 |
-| **Cerveau** | Julia | Analyse IA, suggestions, priorisation | 1 411 |
-| **Os** | Zig | Coffre-fort chiffre AES-256-GCM (3 vaults) | 836 |
-| **Bras** | Ada | Observation systeme, backup, alertes | 711 |
-| **Cortex** | R | Statistiques, tendances, correlations | 543 |
-| **Muscles** | Erlang | Scheduler OTP, supervision, rappels | 374 |
+| **Coeur** | Elixir | Hub central, CLI, chat, memoire, orchestration | ~14 100 |
+| **Cerveau** | Julia | Analyse IA, suggestions, priorisation | ~1 400 |
+| **Os** | Zig | Coffre-fort chiffre AES-256-GCM (3 vaults) | ~840 |
+| **Bras** | Ada | Observation systeme, backup, alertes | ~710 |
+| **Cortex** | R | Statistiques, tendances, correlations | ~540 |
+| **Muscles** | Erlang | Scheduler OTP, supervision, rappels | ~370 |
 | **Langage** | Mistral AI | Conversation intelligente avec function calling | --- |
 
 Tous les organes communiquent via le protocole JSON stdin/stdout (Erlang Ports).
@@ -56,6 +55,9 @@ sudo apt install r-base
 
 # Ada (GNAT)
 sudo apt install gnat
+
+# TTS (optionnel)
+sudo apt install espeak-ng
 ```
 
 ### Compilation et installation
@@ -71,6 +73,24 @@ Ou manuellement :
 make            # Compile Zig + Ada + Elixir
 ```
 
+## Demarrage rapide
+
+```bash
+# Premiere utilisation : configurer les coffres-forts
+alfred vault setup
+
+# Stocker la cle Mistral AI
+alfred vault store creator mistral_api_key
+
+# Demarrer Alfred (daemon complet)
+alfred daemon
+```
+
+Alfred demande le mot de passe du coffre-fort, verifie l'identite, puis lance en arriere-plan :
+- Le sandbox SimpleX Chat (bwrap)
+- Le bridge de messagerie (WebSocket)
+- Le daemon (taches planifiees, rappels, initiatives)
+
 ## Utilisation
 
 ### Gestion de projets
@@ -81,7 +101,6 @@ alfred task add MonProjet "Implementer la feature X"
 alfred task list
 alfred task done 1
 alfred note add MonProjet "Idee importante"
-alfred note list
 ```
 
 ### Conversation (Mistral AI + function calling)
@@ -119,7 +138,6 @@ alfred vault list creator             # Lister les cles
 ```bash
 alfred culture learn botanique "Les orchidees aiment l'humidite"
 alfred culture search orchidees
-alfred culture list
 alfred culture suggestions            # Suggestions auto-extraites des conversations
 ```
 
@@ -158,34 +176,102 @@ alfred arms backup                    # Sauvegarde
 alfred soul                           # Voir les traits actuels
 alfred soul init                      # Inscrire l'ame (coffre creator)
 alfred soul history                   # Historique de l'evolution
-alfred soul reset                     # Reinitialiser les traits
 ```
 
 Les traits d'Alfred (formalite, humour, verbosite, curiosite, empathie, proactivite) evoluent automatiquement au fil des conversations.
 
-### Daemon --- Mode veille
+### Daemon
 
 ```bash
-alfred daemon start                   # Demarre le daemon (foreground)
+alfred daemon                         # Demarrer Alfred (tout-en-un)
 alfred daemon status                  # Etat du daemon
-alfred daemon stop                    # Arreter
+alfred daemon stop                    # Arreter Alfred
+alfred daemon log                     # Voir les derniers logs
 ```
 
-Le daemon verifie les rappels toutes les 60 secondes, execute la maintenance horaire, et consolide la memoire quotidiennement.
+Le daemon orchestre :
+- Rappels toutes les 60s
+- Initiatives proactives toutes les 30 min (taches en retard, rappels imminents)
+- Lecture quotidienne a 14h
+- Rapport d'activite a 17h30
+- Briefing news a 8h (via API locale)
+- Journal intime a 22h (introspection Mistral)
+- Consolidation memoire a 3h (archivage, decay, synthese)
+- Notifications intelligentes (apprend les heures d'activite)
 
 ### SimpleX Chat --- Bridge
 
 ```bash
-bash alfred/scripts/simplex-sandbox.sh &  # Lancer SimpleX en sandbox
-alfred simplex connect                # Connecter a SimpleX Chat
+alfred simplex connect                # Connecter manuellement
 alfred simplex status                 # Etat du bridge
 alfred simplex send "Hello"           # Envoyer un message
-alfred simplex disconnect             # Deconnecter
 ```
 
-Alfred ecoute via SimpleX Chat (WebSocket local, sandbox bwrap) et repond comme en mode chat, avec le meme function calling et la meme personnalite.
+En mode daemon, le bridge demarre automatiquement. Alfred ecoute via SimpleX Chat (WebSocket local, sandbox bwrap) et repond comme en mode chat.
 
-### Tableaux de bord
+Commandes SimpleX :
+```
+/status    /report    /health    /help
+/library   /journal   /news      /soul
+/memory    /voice     /dashboard /system
+```
+
+### Briefing matinal
+
+```bash
+alfred news                           # Dernier briefing
+alfred news refresh                   # Generer un briefing frais
+alfred news list                      # Briefings archives
+```
+
+Alfred lit les infos chaque matin a 8h depuis une API locale, les resume via Mistral par theme (monde, tech, finance, crypto), et envoie un teaser sur SimpleX.
+
+### Journal intime
+
+```bash
+alfred journal                        # Derniere entree
+alfred journal list                   # Entrees recentes
+alfred journal write                  # Ecrire manuellement
+alfred journal show 2026-02-26        # Entree d'une date
+```
+
+Chaque soir a 22h, Alfred ecrit dans son journal : reflexions sur la journee, humeur, points marquants, contexte (projets, lectures, conversations).
+
+### Voix (TTS)
+
+```bash
+alfred voice                          # Statut
+alfred voice on                       # Activer
+alfred voice off                      # Desactiver
+alfred voice say "Bonjour Monsieur"   # Tester
+```
+
+TTS via `espeak-ng`. Quand active, Alfred lit ses notifications et rappels a voix haute.
+
+### Memoire consolidee
+
+```bash
+alfred memory facts                   # Faits memorises
+alfred memory episodes                # Historique des conversations
+alfred memory stats                   # Statistiques memoire
+alfred memory consolidate             # Lancer la consolidation
+```
+
+Pipeline nocturne a 3h :
+1. Archive les episodes > 7 jours
+2. Oublie les faits a tres basse confiance (> 300 jours)
+3. Elague les patterns obsoletes
+4. Genere une synthese via Mistral (injectee dans le system prompt)
+
+### Dashboard web
+
+```bash
+alfred dashboard web                  # Demarrer sur http://localhost:4567
+```
+
+Interface web dark theme, vanilla JS, auto-refresh 30s. Sections : etat, ame, memoire, lecture, journal.
+
+### Tableaux de bord CLI
 
 ```bash
 alfred dashboard                      # Vue unifiee complete
@@ -203,55 +289,70 @@ Alfred/
 ├── GENESE.md                         # Journal de creation
 ├── alfred/
 │   ├── mix.exs                       # Projet Elixir
-│   ├── alfred_completion.bash        # Completion bash
 │   ├── lib/alfred/
-│   │   ├── cli.ex                    # Point d'entree CLI (70+ commandes)
+│   │   ├── cli.ex                    # Point d'entree CLI (80+ commandes)
 │   │   ├── butler.ex                 # Personnalite majordome
-│   │   ├── colors.ex                 # Couleurs ANSI
-│   │   ├── daemon.ex                 # Mode daemon (GenServer)
-│   │   ├── application.ex            # Supervision OTP
-│   │   ├── projects/                 # Projets, taches, notes
-│   │   ├── vault/                    # Coffre-fort (Zig port)
-│   │   ├── brain/                    # Cerveau (Julia port)
-│   │   ├── cortex/                   # Cortex (R port)
-│   │   ├── arms/                     # Bras (Ada port)
+│   │   ├── launcher.ex              # Orchestrateur de demarrage
+│   │   ├── daemon.ex                # Mode daemon (GenServer, 11 slots)
+│   │   ├── log.ex                   # Logger fichier (zero stdout)
+│   │   ├── application.ex           # Supervision OTP
+│   │   ├── projects/                # Projets, taches, notes
+│   │   ├── vault/                   # Coffre-fort (Zig port)
+│   │   ├── brain/                   # Cerveau (Julia port)
+│   │   ├── cortex/                  # Cortex (R port)
+│   │   ├── arms/                    # Bras (Ada port)
 │   │   ├── memory/
-│   │   │   ├── episodic.ex           # Conversations
-│   │   │   ├── semantic.ex           # Faits + consolidation
-│   │   │   ├── procedural.ex         # Patterns
-│   │   │   └── learner.ex            # Pipeline d'apprentissage
+│   │   │   ├── episodic.ex          # Conversations
+│   │   │   ├── semantic.ex          # Faits + consolidation
+│   │   │   ├── procedural.ex        # Patterns
+│   │   │   ├── learner.ex           # Pipeline d'apprentissage
+│   │   │   └── consolidator.ex      # Pipeline nocturne
 │   │   ├── chat/
-│   │   │   ├── client.ex             # Client Mistral AI
-│   │   │   ├── commands.ex           # Chat + function calling
-│   │   │   ├── tools.ex              # Outils pour Mistral
-│   │   │   ├── session.ex            # Gestion de session
-│   │   │   └── system_prompt.ex      # Identite d'Alfred
+│   │   │   ├── client.ex            # Client Mistral AI
+│   │   │   ├── commands.ex          # Chat + function calling
+│   │   │   ├── tools.ex             # Outils pour Mistral
+│   │   │   ├── session.ex           # Gestion de session
+│   │   │   └── system_prompt.ex     # Identite d'Alfred
 │   │   ├── simplex/
-│   │   │   ├── websocket.ex          # Client WebSocket RFC 6455
-│   │   │   ├── client.ex             # API SimpleX Chat
-│   │   │   ├── bridge.ex             # Bridge GenServer
-│   │   │   └── commands.ex           # CLI SimpleX
+│   │   │   ├── websocket.ex         # Client WebSocket RFC 6455
+│   │   │   ├── client.ex            # API SimpleX Chat
+│   │   │   └── bridge.ex            # Bridge GenServer + commandes
 │   │   ├── soul/
-│   │   │   ├── state.ex              # Traits de personnalite
-│   │   │   ├── evolver.ex            # Evolution Mistral-driven
-│   │   │   └── commands.ex           # CLI soul
-│   │   ├── daemon/
-│   │   │   └── commands.ex           # CLI daemon
-│   │   ├── culture/                  # Base de connaissances
-│   │   └── remind/                   # Rappels
+│   │   │   ├── state.ex             # Traits de personnalite
+│   │   │   ├── evolver.ex           # Evolution Mistral-driven
+│   │   │   └── conviction_evolver.ex # Convictions forgees
+│   │   ├── initiative/
+│   │   │   └── smart.ex             # Notifications intelligentes
+│   │   ├── dashboard/
+│   │   │   ├── server.ex            # HTTP :gen_tcp port 4567
+│   │   │   └── html.ex              # Template dark theme
+│   │   ├── journal.ex               # Journal intime quotidien
+│   │   ├── news.ex                  # Briefing matinal
+│   │   ├── voice.ex                 # TTS espeak-ng
+│   │   ├── library/                 # Lecteur hebdomadaire
+│   │   ├── culture/                 # Base de connaissances
+│   │   └── remind/                  # Rappels
 │   ├── src/
-│   │   ├── alfred_scheduler.erl      # Scheduler gen_server
-│   │   └── alfred_health.erl         # Health check (8 organes)
+│   │   ├── alfred_scheduler.erl     # Scheduler gen_server
+│   │   └── alfred_health.erl        # Health check (8 organes)
 │   ├── native/
-│   │   ├── vault/src/main.zig        # AES-256-GCM
-│   │   ├── brain/src/main.jl         # Analyse Julia
-│   │   ├── cortex/src/main.R         # Statistiques R
-│   │   └── arms/src/alfred_arms.adb  # Systeme Ada
-│   └── test/                         # 228 tests
-└── ~/.alfred/                        # Donnees utilisateur
-    ├── data/                         # Projets, taches, memoire, soul
-    ├── vaults/                       # Coffres chiffres (3)
-    └── backups/                      # Sauvegardes Ada
+│   │   ├── vault/src/main.zig       # AES-256-GCM
+│   │   ├── brain/src/main.jl        # Analyse Julia
+│   │   ├── cortex/src/main.R        # Statistiques R
+│   │   └── arms/src/alfred_arms.adb # Systeme Ada
+│   └── test/                        # 340 tests, 23 fichiers
+└── ~/.alfred/                       # Donnees utilisateur
+    ├── alfred.log                   # Log du daemon
+    ├── alfred.pid                   # PID du daemon
+    ├── data/                        # Projets, taches, memoire, soul
+    │   ├── journal/                 # Entrees du journal (YYYY-MM-DD.json)
+    │   ├── news/                    # Briefings matinaux
+    │   ├── reports/                 # Rapports quotidiens
+    │   ├── memory/                  # Synthese, logs consolidation
+    │   └── initiative/              # Logs d'interactions
+    ├── simplex/                     # Donnees SimpleX Chat (sandbox)
+    ├── vaults/                      # Coffres chiffres (3)
+    └── backups/                     # Sauvegardes Ada
 ```
 
 ## Memoire
@@ -271,18 +372,25 @@ Apres chaque conversation, le pipeline d'apprentissage :
 6. Consolide les statistiques (R)
 7. Fait evoluer la personnalite (Mistral, periodiquement)
 
+Toutes les nuits a 3h, la consolidation :
+1. Archive les vieux episodes (> 7 jours)
+2. Oublie les faits a tres basse confiance (> 300 jours)
+3. Elague les patterns obsoletes
+4. Genere une synthese memoire (Mistral) injectee dans le system prompt
+
 ## Securite
 
 - Chiffrement AES-256-GCM pour tous les secrets
 - 3 coffres separes : `creator`, `users`, `culture`
 - Controle d'acces par role (maitre, admin, utilisateur)
 - Derivation de cle SHA-256 (100 000 iterations)
+- SimpleX Chat en sandbox bwrap (isolation filesystem)
 - 100% local --- aucune donnee ne quitte la machine (sauf Mistral API et SimpleX si actif)
 
 ## Tests
 
 ```bash
-make test    # 228 tests
+make test    # 340 tests, 0 failures
 ```
 
 ## Licence
