@@ -90,7 +90,7 @@ defmodule Alfred.DaemonTest do
         Alfred.Daemon.Commands.handle(["unknown"])
       end)
 
-      assert output =~ "daemon start"
+      assert output =~ "alfred daemon"
       assert output =~ "daemon status"
     end
   end

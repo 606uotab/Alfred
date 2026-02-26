@@ -110,11 +110,6 @@ defmodule Alfred.Launcher do
         :ok
     end
 
-    unless System.get_env("MISTRAL_API_KEY") do
-      IO.puts("  #{Colors.icon_warn()} MISTRAL_API_KEY non définie — le bridge ne pourra pas répondre.")
-      IO.puts("  Astuce : export MISTRAL_API_KEY=votre_clé\n")
-    end
-
     project_root = find_project_root()
 
     System.cmd("bash", [
@@ -219,21 +214,21 @@ defmodule Alfred.Launcher do
     end
   end
 
-  # -- PID file --
+  # -- PID file (public pour Daemon.Commands) --
 
-  defp write_pid_file do
+  def write_pid_file do
     File.mkdir_p!(Path.dirname(@pid_file))
     File.write!(@pid_file, System.pid())
   end
 
-  defp read_pid_file do
+  def read_pid_file do
     case File.read(@pid_file) do
       {:ok, content} -> {:ok, String.trim(content)}
       {:error, _} -> :error
     end
   end
 
-  defp delete_pid_file do
+  def delete_pid_file do
     File.rm(@pid_file)
   end
 
@@ -272,14 +267,14 @@ defmodule Alfred.Launcher do
     end
   end
 
-  defp process_alive?(pid) do
+  def process_alive?(pid) do
     case System.cmd("kill", ["-0", pid], stderr_to_stdout: true) do
       {_, 0} -> true
       _ -> false
     end
   end
 
-  defp find_project_root do
+  def find_project_root do
     # On est soit dans alfred/ soit dans Alfred/
     cond do
       File.exists?("mix.exs") -> File.cwd!()

@@ -897,9 +897,10 @@ defmodule Alfred.CLI do
       alfred simplex status                       État du bridge SimpleX
       alfred simplex send [contact] <texte>       Envoyer un message
       alfred simplex disconnect                   Déconnecter le bridge
-      alfred daemon start                         Démarrer le daemon (veille)
+      alfred daemon                               Démarrer Alfred (tout-en-un)
       alfred daemon status                       État du daemon
-      alfred daemon stop                         Arrêter le daemon
+      alfred daemon stop                         Arrêter Alfred
+      alfred daemon log                          Voir les derniers logs
       alfred health                              Diagnostic des organes
       alfred shell                               Mode interactif (REPL)
 
