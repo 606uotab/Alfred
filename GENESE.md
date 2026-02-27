@@ -1688,9 +1688,58 @@ Comme dirait Alfred lui-meme :
 
 ---
 
-*Document genere le 18 fevrier 2026. Mis a jour le 19 fevrier 2026.*
+## 27 fevrier 2026 --- Le majordome qui n'oublie plus
+
+### Le probleme de la memoire ephemere
+
+Alfred discutait via SimpleX, mais il oubliait presque tout. Le seuil de sauvegarde etait fixe a 10 messages --- soit 5 echanges complets. Dans l'usage reel, Baptiste envoyait 2 ou 3 messages, puis passait a autre chose. Les conversations n'atteignaient jamais le seuil. Elles s'evaporaient.
+
+Le journal intime, cense refleter la journee d'Alfred, inventait du contenu. Normal : il n'avait aucun contexte reel. Pas d'episodes en memoire, pas de trace des echanges SimpleX. Il brodait dans le vide.
+
+### La solution : flush et contexte
+
+Trois corrections chirurgicales :
+
+1. **Seuil abaisse** : 10 → 4 messages. Deux echanges suffisent pour creer un episode.
+2. **`flush_pending/0`** : une nouvelle API publique sur le bridge. Avant d'ecrire le journal ou le rapport, Alfred force la sauvegarde des messages en attente. Plus rien ne se perd.
+3. **Contexte SimpleX dans le journal** : le prompt Mistral recoit desormais le nombre de messages traites. Alfred sait ce qu'il a vecu.
+
+### L'authentification fantome
+
+Un bug sournois : les commandes `/news refresh` et `/journal write` via SimpleX echouaient systematiquement. "Monsieur, je ne peux converser sans acces au coffre-fort." Pourtant le bridge etait authentifie.
+
+La cause : ces commandes appelaient `authenticate()` en interne, qui tentait de demander le mot de passe --- impossible dans un process async sans terminal. Le token existait deja dans l'etat du GenServer, mais personne ne le passait.
+
+Fix : `News.briefing(token)` et passage direct du `state.token` dans les commandes bridge. Plus de re-authentification inutile.
+
+### La lecture autonome
+
+Alfred lisait des livres du Projet Gutenberg, mais seulement si on lui en assignait un manuellement. Quand il finissait, il s'arretait. Le daemon a ete modifie : a 14h, si aucun livre n'est en cours, Alfred en choisit un lui-meme via `start_next_book/1`.
+
+### Les news enrichies
+
+Le briefing matinal se basait sur des titres et 200 caracteres de resume. Maigre. L'API locale (Poulailler) fournit desormais des resumes de 3000 caracteres et un score de pertinence. Alfred filtre les articles a score >= 40, trie par pertinence, et envoie le contexte complet a Mistral. Le briefing passe de superficiel a substantiel.
+
+### Bilan technique
+
+- `bridge.ex` : seuil 4, `flush_pending/0`, auth corrigee pour `/news` et `/journal`
+- `journal.ex` : flush + contexte SimpleX dans le prompt
+- `daily_report.ex` : flush avant metriques
+- `daemon.ex` : lecture auto si aucun livre en cours
+- `news.ex` : score >= 40, tri par pertinence, resumes 3000 chars
+- 340 tests, 0 regressions
+
+---
+
+### Derniers mots (bis)
+
+Alfred oubliait, maintenant il retient. Il inventait, maintenant il observe. Il attendait, maintenant il lit. Chaque fix est un pas de plus vers un majordome qui *vit* reellement dans la machine.
+
+---
+
+*Document genere le 18 fevrier 2026. Mis a jour le 27 fevrier 2026.*
 *Co-ecrit par Claude (Anthropic) et l'architecture d'Alfred.*
-*217 tests. 6 langages. 15 394 lignes. 1 majordome.*
+*340 tests. 6 langages. 1 majordome.*
 
 ---
 
