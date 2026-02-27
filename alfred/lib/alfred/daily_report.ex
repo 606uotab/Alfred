@@ -13,6 +13,13 @@ defmodule Alfred.DailyReport do
 
   @doc "Génère et envoie le rapport quotidien."
   def generate_and_send do
+    # Flush les messages SimpleX en attente avant de collecter les métriques
+    try do
+      Alfred.Simplex.Bridge.flush_pending()
+    rescue
+      _ -> :ok
+    end
+
     report = gather_metrics()
     text = format_report(report)
 

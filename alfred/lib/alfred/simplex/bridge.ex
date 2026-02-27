@@ -58,6 +58,11 @@ defmodule Alfred.Simplex.Bridge do
     end
   end
 
+  @doc "Force la sauvegarde des messages en attente comme épisode."
+  def flush_pending do
+    if running?(), do: GenServer.call(__MODULE__, :flush_pending, 30_000), else: :not_running
+  end
+
   @doc "Charge la config SimpleX depuis le disque."
   def load_config do
     case Alfred.Storage.Local.read(@config_file) do
@@ -131,6 +136,16 @@ defmodule Alfred.Simplex.Bridge do
     }
 
     {:reply, info, state}
+  end
+
+  @impl true
+  def handle_call(:flush_pending, _from, state) do
+    if state.pending_learn != [] and state.token != nil do
+      safe_learn(state.pending_learn, state.token)
+      {:reply, {:ok, length(state.pending_learn)}, %{state | pending_learn: []}}
+    else
+      {:reply, :nothing_to_flush, state}
+    end
   end
 
   @impl true
@@ -627,7 +642,7 @@ defmodule Alfred.Simplex.Bridge do
     _ -> "Erreur lors de la consultation de l'âme."
   end
 
-  defp execute_command("news", args, _state) do
+  defp execute_command("news", args, state) do
     case args do
       [] ->
         case Alfred.News.load_latest() do
@@ -641,7 +656,7 @@ defmodule Alfred.Simplex.Bridge do
 
       ["refresh"] ->
         {:async, fn ->
-          case Alfred.News.briefing() do
+          case Alfred.News.briefing(state.token) do
             {:ok, text} -> "Briefing frais :\n\n#{text}"
             {:error, reason} -> "Erreur : #{inspect(reason)}"
           end
@@ -729,7 +744,7 @@ defmodule Alfred.Simplex.Bridge do
     _ -> "Erreur lors de la consultation de la mémoire."
   end
 
-  defp execute_command("journal", args, _state) do
+  defp execute_command("journal", args, state) do
     case args do
       [] ->
         case Alfred.Journal.load_latest() do
@@ -775,7 +790,7 @@ defmodule Alfred.Simplex.Bridge do
 
       ["write"] ->
         {:async, fn ->
-          case Alfred.Journal.write_and_notify() do
+          case Alfred.Journal.write(state.token) do
             {:ok, entry} ->
               "Journal écrit. Humeur : #{entry["mood"] || "?"}."
             {:error, reason} ->
@@ -1059,7 +1074,7 @@ defmodule Alfred.Simplex.Bridge do
             ]
 
         new_pending =
-          if length(new_pending) >= 10 do
+          if length(new_pending) >= 4 do
             safe_learn(new_pending, token)
             []
           else

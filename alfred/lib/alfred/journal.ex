@@ -32,6 +32,13 @@ defmodule Alfred.Journal do
 
   @doc "Écrit l'entrée du journal du jour via Mistral."
   def write(token) when is_binary(token) do
+    # Flush les messages SimpleX en attente pour qu'ils soient dans les épisodes
+    try do
+      Alfred.Simplex.Bridge.flush_pending()
+    rescue
+      _ -> :ok
+    end
+
     context = gather_context()
     prompt = build_prompt(context)
 
@@ -201,6 +208,16 @@ defmodule Alfred.Journal do
       _ -> []
     end
 
+    # Résumé SimpleX
+    simplex_summary = try do
+      case Alfred.Simplex.Bridge.status() do
+        :not_running -> %{message_count: 0, last_message: nil}
+        info -> %{message_count: info.message_count, last_message: info.last_message}
+      end
+    rescue
+      _ -> %{message_count: 0, last_message: nil}
+    end
+
     %{
       date: today,
       episodes_today: episode_count,
@@ -211,7 +228,8 @@ defmodule Alfred.Journal do
       mature_convictions: mature_convictions,
       reading: reading,
       facts_count: facts_count,
-      patterns_count: length(patterns)
+      patterns_count: length(patterns),
+      simplex: simplex_summary
     }
   end
 
@@ -255,6 +273,12 @@ defmodule Alfred.Journal do
     parts = case ctx.reading do
       nil -> parts ++ ["- Aucune lecture en cours"]
       r -> parts ++ ["- Je lis \"#{r.title}\" de #{r.author} (jour #{r.day})"]
+    end
+
+    parts = if ctx.simplex.message_count > 0 do
+      parts ++ ["- SimpleX : #{ctx.simplex.message_count} message(s) traité(s)"]
+    else
+      parts
     end
 
     parts = parts ++ [

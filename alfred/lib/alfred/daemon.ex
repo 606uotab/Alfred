@@ -216,19 +216,26 @@ defmodule Alfred.Daemon do
     # Lire à 14h, une fois par jour
     if hour >= 14 do
       # Vérifier si déjà lu aujourd'hui via les logs
-      already_read = case Alfred.Library.State.load_current() do
-        nil -> true  # pas de livre → rien à faire
+      case Alfred.Library.State.load_current() do
+        nil ->
+          # Pas de livre → en démarrer un automatiquement
+          Alfred.Log.info("Daemon", "Aucun livre en cours, sélection automatique")
+          case Alfred.Chat.Commands.authenticate() do
+            {:ok, token, _, _} -> Alfred.Library.Scheduler.start_next_book(token)
+            _ -> :ok
+          end
+
         state ->
           logs = state["daily_logs"] || []
-          Enum.any?(logs, fn log -> log["date"] == today end)
-      end
+          already_read = Enum.any?(logs, fn log -> log["date"] == today end)
 
-      unless already_read do
-        Alfred.Log.info("Daemon", "Lecture quotidienne")
-        case Alfred.Chat.Commands.authenticate() do
-          {:ok, token, _, _} -> Alfred.Library.Scheduler.tick(token)
-          _ -> :ok
-        end
+          unless already_read do
+            Alfred.Log.info("Daemon", "Lecture quotidienne")
+            case Alfred.Chat.Commands.authenticate() do
+              {:ok, token, _, _} -> Alfred.Library.Scheduler.tick(token)
+              _ -> :ok
+            end
+          end
       end
     end
   end

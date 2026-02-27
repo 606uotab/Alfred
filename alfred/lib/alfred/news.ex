@@ -21,6 +21,15 @@ defmodule Alfred.News do
     end
   end
 
+  @doc "Génère un briefing avec un token déjà authentifié."
+  def briefing(token) when is_binary(token) do
+    with {:ok, articles} <- fetch_news(),
+         {:ok, text} <- generate_briefing(token, articles) do
+      save_briefing(text, length(articles))
+      {:ok, text}
+    end
+  end
+
   @doc "Récupère et envoie le briefing via SimpleX + voix."
   def briefing_and_notify do
     case briefing() do
