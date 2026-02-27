@@ -6,7 +6,8 @@ defmodule Alfred.News do
 
   @api_url ~c"http://localhost:8420/api/v1/news"
   @news_dir "news"
-  @max_articles 30
+  @max_articles 20
+  @min_score 40
   @timeout 15_000
 
   # -- API publique --
@@ -108,10 +109,11 @@ defmodule Alfred.News do
 
     case Jason.decode(json) do
       {:ok, %{"data" => articles}} when is_list(articles) ->
-        # Trier par date de publication (plus récent d'abord)
+        # Filtrer par score qualité, trier par score puis date
         sorted =
           articles
-          |> Enum.sort_by(fn a -> -(a["published_at"] || 0) end)
+          |> Enum.filter(fn a -> (a["score"] || 0) >= @min_score end)
+          |> Enum.sort_by(fn a -> {-(a["score"] || 0), -(a["published_at"] || 0)} end)
           |> Enum.take(@max_articles)
 
         {:ok, sorted}
@@ -135,7 +137,7 @@ defmodule Alfred.News do
         cat_label = category_label(category)
         items = Enum.map_join(Enum.take(arts, 8), "\n", fn a ->
           summary = if a["summary"] && a["summary"] != "" && String.length(a["summary"]) > 10 do
-            " — #{String.slice(a["summary"], 0, 200)}"
+            " — #{String.slice(a["summary"], 0, 3000)}"
           else
             ""
           end
