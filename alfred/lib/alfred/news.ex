@@ -174,19 +174,36 @@ defmodule Alfred.News do
   end
 
   defp build_sources_footer(articles) do
-    lines =
+    # Colonnes : n° | source (max 14) | titre (max 40) | url courte (max 30)
+    rows =
       articles
       |> Enum.with_index(1)
       |> Enum.map(fn {a, i} ->
-        source = a["source"] || "?"
-        title = a["title"] || "Sans titre"
-        url = a["url"]
-        base = " #{i}. [#{source}] #{title}"
-        if is_binary(url) and url != "", do: base <> "\n    #{url}", else: base
+        src = truncate(a["source"] || "?", 14)
+        title = truncate(a["title"] || "?", 40)
+        url = short_url(a["url"], 30)
+        " #{pad(i, 2)} | #{pad_r(src, 14)} | #{pad_r(title, 40)} | #{url}"
       end)
 
-    "---\nSources (via Poulailler localhost:8420) :\n" <> Enum.join(lines, "\n")
+    header = " #  | Source         | Titre                                    | URL"
+    sep =    " ---|----------------|------------------------------------------|------"
+
+    "---\nSources (Poulailler) :\n#{header}\n#{sep}\n" <> Enum.join(rows, "\n")
   end
+
+  defp truncate(str, max) do
+    if String.length(str) > max, do: String.slice(str, 0, max - 1) <> "~", else: str
+  end
+
+  defp short_url(nil, _max), do: ""
+  defp short_url("", _max), do: ""
+  defp short_url(url, max) do
+    clean = url |> String.replace(~r{^https?://}, "") |> String.replace(~r{^www\.}, "")
+    truncate(clean, max)
+  end
+
+  defp pad(n, width), do: n |> Integer.to_string() |> String.pad_leading(width)
+  defp pad_r(str, width), do: String.pad_trailing(str, width)
 
   # -- Sauvegarde --
 

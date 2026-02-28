@@ -534,34 +534,16 @@ defmodule Alfred.Simplex.Bridge do
         {target, ctx} = command_context_to_msg(context)
         enqueue_message(state, %{target: target, text: text, context: ctx})
 
+      {:async, fun, wait_msg} ->
+        Alfred.Log.info("Bridge", "Commande /#{cmd} async...")
+        send_command_reply(state, context, wait_msg)
+        handle_async_dispatch(fun, cmd, state, context)
+        state
+
       {:async, fun} ->
-        # Commande lente → message d'attente + exécution dans un Task séparé
         Alfred.Log.info("Bridge", "Commande /#{cmd} async...")
         send_command_reply(state, context, "Un instant, je réfléchis...")
-        socket = state.socket
-
-        Task.start(fn ->
-          result =
-            try do
-              fun.()
-            rescue
-              e ->
-                Alfred.Log.error("Bridge", "Erreur async /#{cmd}: #{Exception.message(e)}")
-                "Erreur : #{Exception.message(e)}"
-            end
-
-          if socket && result do
-            try do
-              case context do
-                {:group, g} -> Client.send_group_message(socket, g, result)
-                {:direct, c} -> Client.send_direct_message(socket, c, result)
-              end
-            catch
-              _, _ -> :ok
-            end
-          end
-        end)
-
+        handle_async_dispatch(fun, cmd, state, context)
         state
 
       reply ->
@@ -767,10 +749,10 @@ defmodule Alfred.Simplex.Bridge do
       ["refresh"] ->
         {:async, fn ->
           case Alfred.News.briefing(state.token) do
-            {:ok, text} -> "Briefing frais :\n\n#{text}"
+            {:ok, text} -> text
             {:error, reason} -> "Erreur : #{inspect(reason)}"
           end
-        end}
+        end, poulailler_quip()}
 
       _ -> nil
     end
@@ -1145,6 +1127,47 @@ defmodule Alfred.Simplex.Bridge do
   end
 
   defp execute_command(_, _, _), do: nil
+
+  defp handle_async_dispatch(fun, cmd, state, context) do
+    socket = state.socket
+
+    Task.start(fn ->
+      result =
+        try do
+          fun.()
+        rescue
+          e ->
+            Alfred.Log.error("Bridge", "Erreur async /#{cmd}: #{Exception.message(e)}")
+            "Erreur : #{Exception.message(e)}"
+        end
+
+      if socket && result do
+        try do
+          case context do
+            {:group, g} -> Client.send_group_message(socket, g, result)
+            {:direct, c} -> Client.send_direct_message(socket, c, result)
+          end
+        catch
+          _, _ -> :ok
+        end
+      end
+    end)
+  end
+
+  defp poulailler_quip do
+    quips = [
+      "Un instant Monsieur, je vais au poulailler chercher les nouvelles fraiches...",
+      "Je file au poulailler, les poules ont surement pondu quelques scoops...",
+      "Direction le poulailler ! Les volailles ont des choses a raconter...",
+      "Je vais voir ce que les poules ont a caqueter ce matin...",
+      "Laissez-moi consulter le poulailler, Monsieur. Les gallinaces sont bavards aujourd'hui...",
+      "Un tour au poulailler s'impose... esperons que les oeufs d'info soient frais !",
+      "Je cours au poulailler ramasser les nouvelles du jour...",
+      "Le poulailler m'appelle, Monsieur. Je reviens avec le grain d'info..."
+    ]
+
+    Enum.random(quips)
+  end
 
   defp send_command_reply(state, context, text) do
     if state.socket do
