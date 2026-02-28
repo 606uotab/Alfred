@@ -1609,7 +1609,7 @@ Alfred/
 │   ├── native/
 │   │   ├── brain/
 │   │   │   └── src/
-│   │   │       └── main.jl          # Cerveau Julia (~1400 lignes)
+│   │   │       └── main.jl          # Cerveau Julia (~2050 lignes)
 │   │   ├── cortex/
 │   │   │   └── src/
 │   │   │       └── main.R           # Cortex R (~540 lignes)
@@ -1737,7 +1737,123 @@ Alfred oubliait, maintenant il retient. Il inventait, maintenant il observe. Il 
 
 ---
 
-*Document genere le 18 fevrier 2026. Mis a jour le 27 fevrier 2026.*
+## 28 fevrier 2026 --- Le cerveau qui comprend
+
+### Le probleme du keyword matching
+
+Le cerveau Julia d'Alfred etait un bon eleve, mais un eleve basique. Sa recherche universelle comparait des mots-cles extraits par frequence --- `extract_keywords` comptait les occurrences, triait, et renvoyait les top 10. Si le mot exact n'etait pas dans le document, pas de resultat. "Cuisine" ne trouvait pas "gastronomie". "IA" ignorait "intelligence artificielle". Le cerveau lisait les mots mais ne comprenait pas le sens.
+
+La priorisation des taches etait un scoring lineaire : priorite × poids + age × facteur. Pas de notion d'effort, de risque, de velocite. Pas d'apprentissage. Chaque appel repartait de zero.
+
+### L'intuition : Julia sait faire de l'algebre lineaire
+
+Julia n'est pas Python. Sa raison d'etre, c'est le calcul scientifique. `LinearAlgebra` est dans la stdlib. Les matrices, les normes, les produits scalaires --- c'est natif, optimise, zero dependance.
+
+L'idee : transformer chaque document en vecteur dans un espace semantique, et mesurer la proximite par cosinus. TF-IDF (Term Frequency -- Inverse Document Frequency) pour la vectorisation. Cosine similarity pour le matching. K-means++ pour le clustering. Tout avec `using LinearAlgebra` et rien d'autre.
+
+### Infrastructure partagee : le moteur semantique
+
+Cinq blocs fondamentaux ont ete poses dans `main.jl` :
+
+1. **Tokenizer ameliore** : `tokenize(text)` remplace le monolithique `extract_keywords`. Normalisation unicode, filtrage des stop words francais, seuil de longueur. `extract_keywords` devient un wrapper pour retrocompatibilite.
+
+2. **TF-IDF Engine** : `build_tfidf(documents)` construit une matrice documents × vocabulaire. Chaque cellule contient le poids TF-IDF --- frequence locale ponderee par rarete globale. Un mot qui apparait partout (comme "projet") a un poids faible. Un mot specifique ("orchidee") a un poids fort.
+
+3. **Cosine Similarity** : `cosine_sim(v1, v2)` mesure l'angle entre deux vecteurs. Deux documents qui parlent des memes sujets ont un angle proche de zero (similarite ~1.0). Deux documents sans rapport ont un angle de 90 degres (similarite ~0.0).
+
+4. **K-Means++** : `kmeans_cluster(data, k)` avec initialisation intelligente. Le premier centroide est aleatoire, les suivants sont choisis proportionnellement a leur distance au centroide le plus proche. 100 iterations max, convergence par stabilite des assignations.
+
+5. **Auto-K** : `auto_k(n)` --- heuristique sqrt(n/2) clampee entre 2 et 10. Pas de "elbow method" couteuse, juste une approximation pragmatique.
+
+### Feature 1 : Recherche semantique
+
+`cmd_search` a ete entierement reecrit. L'ancien algorithme comptait les mots communs. Le nouveau :
+
+- Collecte tous les documents (projets, taches, notes, faits, episodes, rappels, culture)
+- Construit un modele TF-IDF sur le corpus
+- Transforme la requete en vecteur dans le meme espace
+- Calcule la similarite cosinus entre la requete et chaque document
+- Trie par score decroissant, seuil a 0.01, top 20
+
+Le format de reponse reste identique (`results/total/by_type`) --- l'interface Elixir n'a pas change. Seule la qualite des resultats a bondi.
+
+### Feature 2 : Tendances temporelles
+
+`cmd_trends` analyse quatre dimensions :
+
+- **Frequence d'interaction** : 7 derniers jours vs 7 jours precedents. Hausse, baisse ou stable.
+- **Evolution des topics** : quels sujets montent, quels sujets descendent. Calcule sur les episodes recents vs anciens.
+- **Trajectoire d'humeur** : analyse les entrees du journal intime pour detecter des mots positifs/negatifs.
+- **Patterns d'activite** : heures de pointe extraites du activity log.
+
+C'est le premier pas vers un Alfred qui *observe* les habitudes de son maitre au lieu de simplement reagir.
+
+### Feature 3 : Clustering des conversations
+
+`cmd_cluster` regroupe les episodes par themes :
+
+- Extrait les summaries et topics de chaque episode
+- Construit un espace TF-IDF sur les summaries
+- Applique k-means++ avec k auto-detecte
+- Pour chaque cluster, identifie le label dominant et les top topics
+
+Le resultat : une carte thematique des conversations. "Vous avez eu 12 conversations sur la tech, 8 sur la cuisine, 5 sur la philosophie."
+
+### Feature 4 : Recommandations personnalisees
+
+`cmd_recommend` croise plusieurs sources pour suggerer :
+
+- **Profil d'interets** : topics les plus frequents dans les episodes et les faits
+- **Lacunes culturelles** : sujets discutes mais absents de la base de culture
+- **Topics sous-explores** : presents dans la culture mais rarement evoques
+- **Suggestions de lecture** : genres non couverts par l'historique de la bibliotheque
+- **Connexions** : liens entre faits et culture ("vous parlez souvent de X, et votre culture contient Y")
+
+### Feature 5 : Smart Prioritize
+
+`cmd_smart_prioritize` remplace le scoring lineaire par un apprentissage contextuel :
+
+- Analyse les taches completees pour identifier les keywords rapides vs lents
+- Calcule la velocite (taches/semaine)
+- Scoring multidimensionnel : priorite + age + urgence + effort estime + risque de procrastination
+- Chaque tache recoit un motif explicatif ("tache ancienne, effort leger, risque eleve")
+
+L'ancien `cmd_prioritize` est garde en fallback. L'Elixir essaie `smart_prioritize`, et si ca echoue, retombe sur l'ancien.
+
+### Integration : CLI + SimpleX + tests
+
+Cote Elixir, trois nouveaux handlers dans `Brain.Commands`, trois routes CLI (`alfred trends`, `alfred cluster`, `alfred recommend`), trois commandes bridge SimpleX (`/trends`, `/cluster`, `/recommend`). L'aide CLI et l'aide SimpleX ont ete mises a jour.
+
+`Initiative.Smart.load_data` est devenu public pour que les tendances puissent acceder au activity log.
+
+Les tests du brain ont ete adaptes au nouveau paradigme semantique --- les assertions de keyword matching ne fonctionnent plus avec TF-IDF. Le test de priorisation verifie desormais "priorisation" au lieu de "priorite".
+
+### Bilan technique
+
+- `main.jl` : +650 lignes, infrastructure TF-IDF/cosine/k-means + 5 commandes
+- `commands.ex` : +250 lignes, 3 handlers + upgrade prioritize + data collectors
+- `cli.ex` : 3 routes + help
+- `bridge.ex` : 3 commandes async + 2 formatters + help
+- `smart.ex` : `load_data` rendu public
+- `brain_test.exs` : tests adaptes au TF-IDF
+- 340 tests, 0 regressions
+
+### La composition d'Alfred (mise a jour)
+
+| Langage | Organe | Lignes | % |
+|---------|--------|--------|---|
+| Elixir | Coeur | 12 100 | 73.5% |
+| Julia | Cerveau | 2 050 | 12.4% |
+| Zig | Os | 836 | 5.1% |
+| Ada | Bras | 711 | 4.3% |
+| R | Cortex | 543 | 3.3% |
+| Erlang | Muscles | 374 | 2.3% |
+
+Julia a presque double. Le cerveau grossit --- c'est normal, il apprend a penser.
+
+---
+
+*Document genere le 18 fevrier 2026. Mis a jour le 28 fevrier 2026.*
 *Co-ecrit par Claude (Anthropic) et l'architecture d'Alfred.*
 *340 tests. 6 langages. 1 majordome.*
 
