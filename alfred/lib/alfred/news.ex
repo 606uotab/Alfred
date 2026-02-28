@@ -17,7 +17,7 @@ defmodule Alfred.News do
     with {:ok, articles} <- fetch_news(),
          {:ok, token, _, _} <- Alfred.Chat.Commands.authenticate(),
          {:ok, text} <- generate_briefing(token, articles) do
-      save_briefing(text, length(articles))
+      save_briefing(text, articles)
       {:ok, text}
     end
   end
@@ -26,7 +26,7 @@ defmodule Alfred.News do
   def briefing(token) when is_binary(token) do
     with {:ok, articles} <- fetch_news(),
          {:ok, text} <- generate_briefing(token, articles) do
-      save_briefing(text, length(articles))
+      save_briefing(text, articles)
       {:ok, text}
     end
   end
@@ -168,22 +168,49 @@ defmodule Alfred.News do
     ]
 
     case Alfred.Chat.Client.chat_completion(token, messages, max_tokens: 800, temperature: 0.4) do
-      {:ok, text} -> {:ok, text}
+      {:ok, text} -> {:ok, text <> "\n\n" <> build_sources_footer(articles)}
       {:error, reason} -> {:error, "Mistral error: #{inspect(reason)}"}
     end
   end
 
+  defp build_sources_footer(articles) do
+    lines =
+      articles
+      |> Enum.with_index(1)
+      |> Enum.map(fn {a, i} ->
+        source = a["source"] || "?"
+        title = a["title"] || "Sans titre"
+        url = a["url"]
+        base = " #{i}. [#{source}] #{title}"
+        if is_binary(url) and url != "", do: base <> "\n    #{url}", else: base
+      end)
+
+    "---\nSources (via Poulailler localhost:8420) :\n" <> Enum.join(lines, "\n")
+  end
+
   # -- Sauvegarde --
 
-  defp save_briefing(text, article_count) do
+  defp save_briefing(text, articles) do
     Alfred.Storage.Local.ensure_subdir!(@news_dir)
     today = Date.utc_today() |> Date.to_iso8601()
+
+    sources = Enum.map(articles, fn a ->
+      %{
+        "title" => a["title"],
+        "source" => a["source"],
+        "url" => a["url"],
+        "category" => a["category"],
+        "score" => a["score"]
+      }
+    end)
 
     data = %{
       "date" => today,
       "generated_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
-      "article_count" => article_count,
-      "briefing" => text
+      "article_count" => length(articles),
+      "briefing" => text,
+      "sources" => sources,
+      "provider" => "Poulailler (localhost:8420)"
     }
 
     Alfred.Storage.Local.write(Path.join(@news_dir, "#{today}.json"), data)
