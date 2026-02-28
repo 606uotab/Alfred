@@ -1982,11 +1982,38 @@ check_bridge() ->
 
 Le coeur Elixir a gagne presque 3 000 lignes. La resilience a un cout en code, mais c'est un investissement : Alfred ne perd plus la tete quand quelque chose tombe.
 
+### Les news qui citent leurs sources
+
+Le briefing matinal avait un defaut : Alfred resumait les nouvelles, mais ne disait jamais d'ou elles venaient. Impossible de verifier une info, de remonter a l'article original, ou meme de prouver qu'il avait bien consulte le Poulailler.
+
+Trois corrections :
+
+1. **Tableau de sources en pied de briefing** : chaque article est liste dans un tableau compact aligne --- source (14 chars max), titre (40 chars), URL nettoyee (sans `https://www.`, 30 chars). Le briefing se termine desormais par un bloc lisible et tracable.
+
+```
+---
+Sources (Poulailler) :
+ #  | Source         | Titre                                    | URL
+ ---|----------------|------------------------------------------|------
+  1 | Le Monde       | Macron annonce un plan pour l'IA~         | lemonde.fr/politique/...
+  2 | Reuters        | Bitcoin franchit les 100k$               | reuters.com/crypto/bi~
+```
+
+2. **Articles bruts sauvegardes** : le JSON quotidien (`~/.alfred/data/news/YYYY-MM-DD.json`) contient desormais la liste complete des articles utilises (titre, source, URL, categorie, score) et l'attribution `"provider": "Poulailler (localhost:8420)"`. Tracabilite totale.
+
+3. **Les phrases du poulailler** : quand Baptiste demande `/news refresh` via SimpleX, Alfred ne dit plus "Un instant, je reflechis..." mais pige dans huit phrases caustiques :
+
+> *"Je file au poulailler, les poules ont surement pondu quelques scoops..."*
+> *"Le poulailler m'appelle, Monsieur. Je reviens avec le grain d'info..."*
+> *"Un tour au poulailler s'impose... esperons que les oeufs d'info soient frais !"*
+
+Le jeu de mots sur le nom de l'API locale (Poulailler) transforme une attente technique en moment de caractere. Le majordome a de l'humour.
+
 ---
 
 *Document genere le 18 fevrier 2026. Mis a jour le 28 fevrier 2026.*
 *Co-ecrit par Claude (Anthropic) et l'architecture d'Alfred.*
-*340 tests. 6 langages. 1 majordome.*
+*346 tests. 6 langages. 1 majordome.*
 
 ---
 
