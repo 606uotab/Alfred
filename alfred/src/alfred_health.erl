@@ -7,7 +7,7 @@
 
 -export([check_all/0, check_beam/0, check_vault/0, check_storage/0,
          check_scheduler/0, check_brain/0, check_cortex/0, check_mistral/0,
-         check_arms/0]).
+         check_arms/0, check_bridge/0]).
 
 %% @doc Check the health of all Alfred components.
 -spec check_all() -> list({atom(), map()}).
@@ -20,7 +20,8 @@ check_all() ->
         {brain, check_brain()},
         {cortex, check_cortex()},
         {arms, check_arms()},
-        {mistral, check_mistral()}
+        {mistral, check_mistral()},
+        {bridge, check_bridge()}
     ].
 
 %% @doc BEAM VM status.
@@ -169,6 +170,27 @@ check_mistral() ->
             end;
         _Key ->
             #{status => ok, source => env, configured => true}
+    end.
+
+%% @doc Check if the SimpleX Bridge is running and authenticated.
+check_bridge() ->
+    case erlang:whereis('Elixir.Alfred.Simplex.Bridge') of
+        undefined ->
+            #{status => down, running => false, authenticated => false,
+              connected => false, message_count => 0};
+        Pid when is_pid(Pid) ->
+            try
+                Info = gen_server:call(Pid, status, 2000),
+                #{status => ok,
+                  running => true,
+                  authenticated => maps:get(authenticated, Info, false),
+                  connected => maps:get(connected, Info, false),
+                  message_count => maps:get(message_count, Info, 0)}
+            catch
+                _:_ ->
+                    #{status => warning, running => true, authenticated => false,
+                      connected => false, message_count => 0}
+            end
     end.
 
 %%====================================================================

@@ -162,7 +162,8 @@ defmodule Alfred.SimplexTest do
       Alfred.Simplex.Bridge.save_config(config)
       assert {:ok, loaded} = Alfred.Simplex.Bridge.load_config()
       assert loaded["host"] == "localhost"
-      assert loaded["port"] == 5226
+      # save_config force le port à 5227 (validation)
+      assert loaded["port"] == 5227
       assert loaded["contact"] == "alice"
     end
 

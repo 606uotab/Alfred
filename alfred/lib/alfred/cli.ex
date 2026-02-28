@@ -169,6 +169,9 @@ defmodule Alfred.CLI do
       ["report"] ->
         daily_report()
 
+      ["reauth"] ->
+        reauth()
+
       ["simplex" | simplex_args] ->
         Alfred.Simplex.Commands.handle(simplex_args)
 
@@ -770,6 +773,7 @@ defmodule Alfred.CLI do
   defp organ_label(:cortex), do: "Cortex (R)"
   defp organ_label(:arms), do: "Bras (Ada)"
   defp organ_label(:mistral), do: "Langage (Mistral AI)"
+  defp organ_label(:bridge), do: "Pont (SimpleX Bridge)"
   defp organ_label(other), do: "#{other}"
 
   defp organ_details(:beam, info) do
@@ -822,6 +826,37 @@ defmodule Alfred.CLI do
       "Actif, #{info.reminders} rappels en attente"
     else
       "Inactif"
+    end
+  end
+
+  defp organ_details(:bridge, info) do
+    cond do
+      not info.running -> "Inactif"
+      info.connected and info.authenticated -> "Connecté, Mistral actif (#{info.message_count} msgs)"
+      info.connected -> "Connecté, Mistral non authentifié (#{info.message_count} msgs)"
+      true -> "Démarré mais non connecté"
+    end
+  end
+
+  # -- Reauth --
+
+  defp reauth do
+    if Alfred.Simplex.Bridge.running?() do
+      password = Alfred.Input.prompt_password("  Mot de passe du coffre-fort : ")
+
+      if password == "" do
+        Butler.say("Mot de passe requis, Monsieur.")
+      else
+        case Alfred.Simplex.Bridge.reauth(password) do
+          :ok ->
+            Butler.say("Re-authentification réussie, Monsieur. Le bridge est à jour.")
+
+          {:error, reason} ->
+            Butler.say("Échec de la re-authentification : #{reason}")
+        end
+      end
+    else
+      Butler.say("Le bridge n'est pas actif. Lancez : alfred start")
     end
   end
 
@@ -913,6 +948,7 @@ defmodule Alfred.CLI do
       alfred daemon status                       État du daemon
       alfred daemon stop                         Arrêter Alfred
       alfred daemon log                          Voir les derniers logs
+      alfred reauth                              Re-authentifier le bridge
       alfred health                              Diagnostic des organes
       alfred shell                               Mode interactif (REPL)
 

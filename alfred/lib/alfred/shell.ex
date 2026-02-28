@@ -11,7 +11,8 @@ defmodule Alfred.Shell do
   @known_commands ~w(
     project task note vault culture user remind chat ask memory
     briefing search prioritize think summarize suggest cortex arms
-    soul dashboard health status help shell quit exit q
+    soul dashboard health status help shell quit exit q reauth
+    trends cluster recommend
   )
 
   def start do

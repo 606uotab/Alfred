@@ -158,6 +158,11 @@ defmodule Alfred.Daemon do
         state
       end
 
+    # 12. Health check auth Mistral (toutes les 15 min)
+    if count > 0 and rem(count, 15) == 7 do
+      safe_run(fn -> check_auth_health() end)
+    end
+
     %{state |
       check_count: count,
       last_check: now
@@ -271,6 +276,32 @@ defmodule Alfred.Daemon do
     else
       state
     end
+  end
+
+  defp check_auth_health do
+    unless Alfred.Simplex.Bridge.running?(), do: throw(:skip)
+
+    case Alfred.Simplex.Bridge.verify_token() do
+      :ok ->
+        Alfred.Log.debug("Daemon", "Auth health check OK")
+
+      :invalid ->
+        Alfred.Log.error("Daemon", "Token Mistral invalide ou expiré")
+        Alfred.Simplex.Bridge.send_group_notification(
+          "Le token Mistral semble invalide. Utilisez 'alfred reauth' pour re-authentifier."
+        )
+
+      :no_token ->
+        Alfred.Log.info("Daemon", "Bridge sans token Mistral")
+
+      :unreachable ->
+        Alfred.Log.debug("Daemon", "Mistral API inaccessible (réseau?)")
+
+      _ ->
+        :ok
+    end
+  catch
+    :skip -> :ok
   end
 
   defp format_uptime(seconds) do

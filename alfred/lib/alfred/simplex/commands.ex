@@ -143,9 +143,9 @@ defmodule Alfred.Simplex.Commands do
           Process.sleep(100)
         end
 
-        case Bridge.start_link(config) do
+        case Alfred.Application.start_bridge(config) do
           {:ok, _pid} ->
-            IO.puts("  #{Colors.icon_ok()} Connecté\n")
+            IO.puts("  #{Colors.icon_ok()} Connecté (supervisé)\n")
             Butler.say("Bridge SimpleX actif. J'écoute les messages, Monsieur.")
             IO.puts("  #{Colors.dim("Ctrl+C pour arrêter le bridge.")}\n")
 

@@ -14,6 +14,7 @@ defmodule Alfred.Simplex.Bridge do
   @config_file "simplex_config.json"
   @reconnect_delay 5_000
   @ping_interval 30_000
+  @fixed_port 5227
 
   # -- API publique --
 
@@ -63,16 +64,66 @@ defmodule Alfred.Simplex.Bridge do
     if running?(), do: GenServer.call(__MODULE__, :flush_pending, 30_000), else: :not_running
   end
 
-  @doc "Charge la config SimpleX depuis le disque."
+  @doc "Re-authentifie le bridge avec un nouveau mot de passe."
+  def reauth(password) do
+    if running?() do
+      GenServer.call(__MODULE__, {:reauth, password}, 30_000)
+    else
+      {:error, :not_running}
+    end
+  end
+
+  @doc "Vérifie que le token Mistral est encore valide."
+  def verify_token do
+    if running?() do
+      GenServer.call(__MODULE__, :verify_token, 15_000)
+    else
+      {:error, :not_running}
+    end
+  end
+
+  @doc "Charge et valide la config SimpleX depuis le disque."
   def load_config do
     case Alfred.Storage.Local.read(@config_file) do
-      data when is_map(data) and map_size(data) > 0 -> {:ok, data}
+      data when is_map(data) and map_size(data) > 0 ->
+        case validate_config(data) do
+          {:ok, validated} -> {:ok, validated}
+          {:error, reason} ->
+            Alfred.Log.error("Bridge", "Config SimpleX invalide: #{reason}")
+            {:error, reason}
+        end
       _ -> :no_config
     end
   end
 
-  @doc "Sauvegarde la config SimpleX."
+  @doc "Valide la config SimpleX. Rejette les configs invalides."
+  def validate_config(config) when is_map(config) do
+    contact = config["contact"]
+    host = config["host"]
+    port = config["port"]
+    group = config["group"]
+
+    cond do
+      !is_binary(contact) or contact == "" ->
+        {:error, "Champ 'contact' manquant ou vide"}
+      !is_binary(host) or host == "" ->
+        {:error, "Champ 'host' manquant ou vide"}
+      port != @fixed_port ->
+        {:error, "Le port doit être #{@fixed_port}, reçu: #{inspect(port)}"}
+      !is_binary(group) or group == "" ->
+        {:error, "Champ 'group' manquant ou vide"}
+      true ->
+        {:ok, %{"contact" => contact, "host" => host, "port" => @fixed_port, "group" => group}}
+    end
+  end
+
+  def validate_config(_), do: {:error, "Config doit être une map"}
+
+  @doc "Sauvegarde la config SimpleX (force port et group par défaut)."
   def save_config(config) do
+    config = config
+      |> Map.put("port", @fixed_port)
+      |> Map.put_new("group", "Alfred_1")
     Alfred.Storage.Local.write(@config_file, config)
   end
 
@@ -83,10 +134,18 @@ defmodule Alfred.Simplex.Bridge do
     # Trap exits pour que terminate/2 soit appelé sur Ctrl+C
     Process.flag(:trap_exit, true)
 
+    # Utiliser l'auth pré-faite par le Launcher si disponible
+    pre_auth = Map.get(config, "auth", :no_auth)
+    config = Map.delete(config, "auth")
+
     {token, soul, culture} =
-      case Commands.authenticate() do
+      case pre_auth do
         {:ok, t, s, c} -> {t, s, c}
-        _ -> {nil, nil, []}
+        _ ->
+          case Commands.authenticate() do
+            {:ok, t, s, c} -> {t, s, c}
+            _ -> {nil, nil, []}
+          end
       end
 
     session = if token, do: Commands.build_session("simplex", soul, culture), else: nil
@@ -146,6 +205,57 @@ defmodule Alfred.Simplex.Bridge do
     else
       {:reply, :nothing_to_flush, state}
     end
+  end
+
+  @impl true
+  def handle_call({:reauth, password}, _from, state) do
+    case Alfred.Chat.Commands.authenticate_with_password(password) do
+      {:ok, token, soul, culture} ->
+        session = Commands.build_session("simplex", soul, culture)
+        Alfred.Log.info("Bridge", "Re-authentification réussie")
+        Alfred.SessionStore.save(password, token, soul, culture)
+
+        new_state = %{state |
+          token: token,
+          soul: soul,
+          culture: culture,
+          session: session
+        }
+
+        {:reply, :ok, new_state}
+
+      {:error, reason} ->
+        Alfred.Log.error("Bridge", "Re-auth échouée: #{reason}")
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  @impl true
+  def handle_call(:verify_token, _from, state) do
+    result =
+      if state.token do
+        :inets.start()
+        :ssl.start()
+
+        headers = [
+          {~c"Authorization", String.to_charlist("Bearer #{state.token}")},
+          {~c"Accept", ~c"application/json"}
+        ]
+
+        case :httpc.request(:get, {~c"https://api.mistral.ai/v1/models", headers},
+               [timeout: 10_000, connect_timeout: 5_000], []) do
+          {:ok, {{_, 200, _}, _, _}} -> :ok
+          {:ok, {{_, 401, _}, _, _}} -> :invalid
+          {:ok, {{_, _, _}, _, _}} -> :unreachable
+          {:error, _} -> :unreachable
+        end
+      else
+        :no_token
+      end
+
+    {:reply, result, state}
+  rescue
+    _ -> {:reply, :unreachable, state}
   end
 
   @impl true
@@ -895,6 +1005,10 @@ defmodule Alfred.Simplex.Bridge do
     end
   end
 
+  defp execute_command("reauth", _, _state) do
+    "Re-authentification via SimpleX non supportée (mot de passe requis).\nUtilisez : alfred reauth"
+  end
+
   defp execute_command("trends", _, _state) do
     {:async, fn ->
       episodes = Alfred.Memory.Episodic.list_episodes()
@@ -1024,6 +1138,7 @@ defmodule Alfred.Simplex.Bridge do
     /system memory — Détail mémoire et swap
     /system backup — Sauvegarder les données
     /health — Diagnostic des organes
+    /reauth — Re-authentifier (CLI seulement)
     /help — Cette aide
     """
     |> String.trim()

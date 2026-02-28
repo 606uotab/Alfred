@@ -58,6 +58,9 @@ defmodule Alfred.Launcher do
     IO.puts("")
     Butler.say("Démarrage complet d'Alfred...\n")
 
+    # 0. Authentification Mistral AVANT tout (prompt visible)
+    auth = authenticate_early()
+
     # 1. Nettoyer les anciens processus
     cleanup()
 
@@ -74,7 +77,7 @@ defmodule Alfred.Launcher do
     end
 
     # 5. Bridge SimpleX (démarré ici car le sandbox est garanti prêt)
-    start_bridge()
+    start_bridge(auth)
 
     # 7. PID file
     write_pid_file()
@@ -131,7 +134,34 @@ defmodule Alfred.Launcher do
 
   # -- Bridge --
 
-  defp start_bridge do
+  defp authenticate_early do
+    case System.get_env("MISTRAL_API_KEY") do
+      token when is_binary(token) and byte_size(token) > 0 ->
+        IO.puts("  #{Colors.icon_ok()} Mistral (env)")
+        {:ok, token, nil, []}
+
+      _ ->
+        password = Alfred.Input.prompt_password("  Mot de passe du coffre-fort : ")
+
+        if password == "" do
+          IO.puts("  #{Colors.icon_warn()} Pas de mot de passe — bridge sans Mistral")
+          :no_auth
+        else
+          case Alfred.Chat.Commands.authenticate_with_password(password) do
+            {:ok, token, soul, culture} = result ->
+              IO.puts("  #{Colors.icon_ok()} Mistral authentifié")
+              Alfred.SessionStore.save(password, token, soul, culture)
+              result
+
+            {:error, reason} ->
+              IO.puts("  #{Colors.icon_warn()} Auth échouée : #{reason}")
+              :no_auth
+          end
+        end
+    end
+  end
+
+  defp start_bridge(auth) do
     alias Alfred.Simplex.Bridge
 
     if Bridge.running?() do
@@ -142,13 +172,18 @@ defmodule Alfred.Launcher do
           # Petit délai pour laisser simplex-chat s'initialiser complètement
           Process.sleep(1_000)
 
-          case Bridge.start_link(config) do
+          config_with_auth = Map.put(config, "auth", auth)
+
+          case Alfred.Application.start_bridge(config_with_auth) do
             {:ok, _} ->
-              IO.puts("  #{Colors.icon_ok()} Bridge SimpleX démarré")
+              IO.puts("  #{Colors.icon_ok()} Bridge SimpleX démarré (supervisé)")
 
             {:error, reason} ->
               IO.puts("  #{Colors.icon_warn()} Bridge SimpleX : #{inspect(reason)}")
           end
+
+        {:error, reason} ->
+          IO.puts("  #{Colors.icon_warn()} Config SimpleX invalide : #{reason}")
 
         :no_config ->
           IO.puts("  #{Colors.icon_warn()} Pas de config SimpleX — bridge non démarré")

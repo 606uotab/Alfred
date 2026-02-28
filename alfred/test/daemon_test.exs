@@ -4,24 +4,22 @@ defmodule Alfred.DaemonTest do
   setup do
     Alfred.Storage.Local.ensure_data_dir!()
 
-    case Process.whereis(Alfred.Supervisor) do
-      nil -> :ok
-      pid when is_pid(pid) ->
-        if Process.alive?(pid), do: Supervisor.stop(pid)
+    for name <- [Alfred.Daemon, :alfred_scheduler, Alfred.Supervisor] do
+      case Process.whereis(name) do
+        nil -> :ok
+        pid when is_pid(pid) ->
+          try do
+            if Process.alive?(pid) do
+              if name == Alfred.Supervisor, do: Supervisor.stop(pid), else: GenServer.stop(pid)
+            end
+          catch
+            :exit, _ -> :ok
+          end
+      end
     end
 
-    case GenServer.whereis(:alfred_scheduler) do
-      nil -> :ok
-      pid when is_pid(pid) ->
-        if Process.alive?(pid), do: GenServer.stop(pid)
-    end
-
-    # Stop daemon if running
-    case Process.whereis(Alfred.Daemon) do
-      nil -> :ok
-      pid when is_pid(pid) ->
-        if Process.alive?(pid), do: GenServer.stop(pid)
-    end
+    # Remove stale PID file to avoid interfering with stop/status tests
+    Alfred.Launcher.delete_pid_file()
 
     {:ok, _} = Alfred.Application.start()
     :ok
