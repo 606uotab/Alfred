@@ -8,6 +8,7 @@ Lit des commandes JSON sur stdin, écrit des réponses JSON sur stdout.
 using JSON3
 using Statistics
 using Dates
+using LinearAlgebra
 
 # ============================================================
 # Protocol — JSON lines on stdin/stdout
@@ -290,29 +291,169 @@ const STOP_WORDS = Set([
     "je", "tu", "se", "si", "tout", "très", "bien", "aussi", "comme"
 ])
 
-function extract_keywords(text::String; min_length=3, top_n=10)
-    # Normalize
-    text = lowercase(text)
-    # Remove punctuation
-    text = replace(text, r"[^\w\sàâäéèêëïîôùûüÿçœæ]" => " ")
-    # Split into words
-    words = split(text)
-    # Filter
-    words = filter(w -> length(w) >= min_length && !(w in STOP_WORDS), words)
+function tokenize(text::AbstractString; min_length=3)
+    lt = lowercase(string(text))
+    lt = replace(lt, r"[^\w\sàâäéèêëïîôùûüÿçœæ]" => " ")
+    words = split(lt)
+    return [string(w) for w in words if length(w) >= min_length && !(string(w) in STOP_WORDS)]
+end
 
-    if isempty(words)
-        return String[]
-    end
+function extract_keywords(text::AbstractString; min_length=3, top_n=10)
+    words = tokenize(string(text), min_length=min_length)
+    isempty(words) && return String[]
 
-    # Count frequencies
     freq = Dict{String,Int}()
     for w in words
         freq[w] = get(freq, w, 0) + 1
     end
 
-    # Sort by frequency
     sorted = sort(collect(freq), by=x -> -x[2])
     return [p[1] for p in sorted[1:min(top_n, length(sorted))]]
+end
+
+# ============================================================
+# TF-IDF Engine — Infrastructure sémantique partagée
+# ============================================================
+
+struct TFIDFModel
+    matrix::Matrix{Float64}
+    vocabulary::Vector{String}
+    idf::Vector{Float64}
+    doc_norms::Vector{Float64}
+end
+
+function build_tfidf(documents::Vector{String}; min_df=1, max_df_ratio=0.95)
+    n_docs = length(documents)
+    n_docs == 0 && return TFIDFModel(zeros(0,0), String[], Float64[], Float64[])
+
+    tokenized = [tokenize(doc) for doc in documents]
+
+    # Document frequency
+    df = Dict{String,Int}()
+    for tokens in tokenized
+        for w in Set(tokens)
+            df[w] = get(df, w, 0) + 1
+        end
+    end
+
+    max_df = round(Int, n_docs * max_df_ratio)
+    vocab = sort([w for (w, count) in df if count >= min_df && count <= max_df])
+    n_vocab = length(vocab)
+
+    n_vocab == 0 && return TFIDFModel(zeros(n_docs, 0), String[], Float64[], zeros(n_docs))
+
+    word_to_idx = Dict(w => i for (i, w) in enumerate(vocab))
+
+    # TF matrix
+    tf_matrix = zeros(Float64, n_docs, n_vocab)
+    for (d, tokens) in enumerate(tokenized)
+        n_tokens = length(tokens)
+        n_tokens == 0 && continue
+        for w in tokens
+            idx = get(word_to_idx, w, 0)
+            if idx > 0
+                tf_matrix[d, idx] += 1.0
+            end
+        end
+        tf_matrix[d, :] ./= n_tokens
+    end
+
+    # IDF
+    idf_vec = Float64[log(n_docs / max(1, df[w])) for w in vocab]
+
+    # TF-IDF
+    tfidf_matrix = tf_matrix .* idf_vec'
+
+    # L2 norms
+    doc_norms = Float64[norm(tfidf_matrix[d, :]) for d in 1:n_docs]
+
+    return TFIDFModel(tfidf_matrix, vocab, idf_vec, doc_norms)
+end
+
+function query_vector(model::TFIDFModel, query::AbstractString)
+    tokens = tokenize(string(query))
+    vec = zeros(Float64, length(model.vocabulary))
+    isempty(tokens) && return vec
+
+    word_to_idx = Dict(w => i for (i, w) in enumerate(model.vocabulary))
+    for w in tokens
+        idx = get(word_to_idx, w, 0)
+        if idx > 0
+            vec[idx] += 1.0
+        end
+    end
+    vec ./= length(tokens)
+    vec .*= model.idf
+    return vec
+end
+
+function cosine_sim(v1::Vector{Float64}, v2::Vector{Float64}, n1::Float64, n2::Float64)
+    (n1 == 0.0 || n2 == 0.0) && return 0.0
+    return dot(v1, v2) / (n1 * n2)
+end
+
+# ============================================================
+# K-Means Clustering
+# ============================================================
+
+function kmeans_cluster(data::Matrix{Float64}, k::Int; max_iter=100)
+    n, d = size(data)
+    k = min(k, n)
+    k <= 0 && return ones(Int, n)
+
+    # K-means++ init
+    centroids = zeros(Float64, k, d)
+    idx = rand(1:n)
+    centroids[1, :] = data[idx, :]
+
+    for c in 2:k
+        dists = Float64[minimum(sum((data[i, :] .- centroids[j, :]).^2) for j in 1:c-1) for i in 1:n]
+        total = sum(dists)
+        if total == 0.0
+            centroids[c, :] = data[rand(1:n), :]
+        else
+            r = rand() * total
+            cum = 0.0
+            for i in 1:n
+                cum += dists[i]
+                if cum >= r
+                    centroids[c, :] = data[i, :]
+                    break
+                end
+            end
+        end
+    end
+
+    assignments = zeros(Int, n)
+    for iter in 1:max_iter
+        new_assign = zeros(Int, n)
+        for i in 1:n
+            best_c, best_d = 1, Inf
+            for c in 1:k
+                d_sq = sum((data[i, :] .- centroids[c, :]).^2)
+                if d_sq < best_d
+                    best_d = d_sq
+                    best_c = c
+                end
+            end
+            new_assign[i] = best_c
+        end
+
+        new_assign == assignments && break
+        assignments = new_assign
+
+        for c in 1:k
+            members = findall(x -> x == c, assignments)
+            if !isempty(members)
+                centroids[c, :] = mean(data[members, :], dims=1)[1, :]
+            end
+        end
+    end
+    return assignments
+end
+
+function auto_k(n::Int)
+    return clamp(round(Int, sqrt(n / 2)), 2, min(10, n))
 end
 
 # ============================================================
@@ -1187,181 +1328,603 @@ function cmd_prioritize(input)
 end
 
 # ============================================================
-# Universal Search — Recherche transversale
+# Semantic Search — Recherche TF-IDF + cosine similarity
 # ============================================================
 
 function cmd_search(input)
     query = get(input, "query", "")
     if isempty(strip(query))
-        respond_error("Requête vide.")
+        respond_error("Requete vide.")
         return
     end
 
-    words = split(lowercase(strip(query)))
+    documents = String[]
+    doc_meta = Dict{String,Any}[]
 
-    results = Dict{String,Any}[]
-
-    # Score a text against query words: count matches + bonus for exact phrase
-    function score_text(text::String)
-        lt = lowercase(text)
-        word_score = count(w -> occursin(w, lt), words)
-        # Bonus for exact phrase match
-        exact_bonus = occursin(lowercase(query), lt) ? 2.0 : 0.0
-        return word_score + exact_bonus
-    end
-
-    # -- Search in projects --
-    projects = get(input, "projects", [])
-    for proj in projects
+    for proj in get(input, "projects", [])
         name = get(proj, "name", "")
-        s = score_text(name)
-        if s > 0
-            push!(results, Dict{String,Any}(
-                "type" => "project",
-                "title" => name,
-                "excerpt" => "Projet",
-                "score" => s
-            ))
-        end
+        push!(documents, name)
+        push!(doc_meta, Dict{String,Any}("type" => "project", "title" => name, "excerpt" => "Projet"))
     end
 
-    # -- Search in tasks --
-    tasks = get(input, "tasks", [])
-    for t in tasks
+    for t in get(input, "tasks", [])
         desc = get(t, "description", "")
         project = get(t, "project", "")
-        text = "$desc $project"
-        s = score_text(text)
-        if s > 0
-            status = get(t, "status", "pending")
-            icon = status == "done" ? "✓" : "○"
-            push!(results, Dict{String,Any}(
-                "type" => "task",
-                "title" => desc,
-                "excerpt" => "$icon [$project] P$(get(t, "priority", 1))",
-                "score" => s
-            ))
-        end
+        push!(documents, "$desc $project")
+        status = get(t, "status", "pending")
+        icon = status == "done" ? "done" : "o"
+        push!(doc_meta, Dict{String,Any}("type" => "task", "title" => desc,
+            "excerpt" => "$icon [$project] P$(get(t, "priority", 1))"))
     end
 
-    # -- Search in notes --
-    notes = get(input, "notes", [])
-    for n in notes
+    for n in get(input, "notes", [])
         text = get(n, "text", "")
         project = get(n, "project", "")
-        combined = "$text $project"
-        s = score_text(combined)
-        if s > 0
-            excerpt = length(text) > 80 ? text[1:77] * "..." : text
-            push!(results, Dict{String,Any}(
-                "type" => "note",
-                "title" => "[$project]",
-                "excerpt" => excerpt,
-                "score" => s
-            ))
-        end
+        push!(documents, "$text $project")
+        excerpt = length(text) > 80 ? text[1:77] * "..." : text
+        push!(doc_meta, Dict{String,Any}("type" => "note", "title" => "[$project]", "excerpt" => excerpt))
     end
 
-    # -- Search in memory facts --
-    facts = get(input, "facts", [])
-    for f in facts
+    for f in get(input, "facts", [])
         content = get(f, "content", "")
         subject = get(f, "subject", "")
         category = get(f, "category", "")
-        combined = "$content $subject $category"
-        s = score_text(combined)
-        if s > 0
-            excerpt = length(content) > 80 ? content[1:77] * "..." : content
-            push!(results, Dict{String,Any}(
-                "type" => "fact",
-                "title" => "[$category] $subject",
-                "excerpt" => excerpt,
-                "score" => s
-            ))
-        end
+        push!(documents, "$content $subject $category")
+        excerpt = length(content) > 80 ? content[1:77] * "..." : content
+        push!(doc_meta, Dict{String,Any}("type" => "fact", "title" => "[$category] $subject", "excerpt" => excerpt))
     end
 
-    # -- Search in episodes --
-    episodes = get(input, "episodes", [])
-    for ep in episodes
+    for ep in get(input, "episodes", [])
         summary = get(ep, "summary", "")
         topics = get(ep, "topics", [])
         topics_str = join([string(t) for t in topics], " ")
-        combined = "$summary $topics_str"
-        s = score_text(combined)
-        if s > 0
-            date = get(ep, "started_at", "?")
-            date_short = length(date) >= 10 ? date[1:10] : date
-            push!(results, Dict{String,Any}(
-                "type" => "episode",
-                "title" => "Conversation du $date_short",
-                "excerpt" => length(summary) > 80 ? summary[1:77] * "..." : summary,
-                "score" => s
-            ))
-        end
+        push!(documents, "$summary $topics_str")
+        date = get(ep, "started_at", "?")
+        date_short = length(date) >= 10 ? date[1:10] : date
+        push!(doc_meta, Dict{String,Any}("type" => "episode", "title" => "Conversation du $date_short",
+            "excerpt" => length(summary) > 80 ? summary[1:77] * "..." : summary))
     end
 
-    # -- Search in reminders --
-    reminders = get(input, "reminders", [])
-    for r in reminders
+    for r in get(input, "reminders", [])
         text = get(r, "text", "")
         project = get(r, "project", "")
-        combined = "$text $project"
-        s = score_text(combined)
-        if s > 0
-            status = get(r, "status", "pending")
-            push!(results, Dict{String,Any}(
-                "type" => "reminder",
-                "title" => text,
-                "excerpt" => "[$project] ($status)",
-                "score" => s
-            ))
-        end
+        push!(documents, "$text $project")
+        push!(doc_meta, Dict{String,Any}("type" => "reminder", "title" => text,
+            "excerpt" => "[$project] ($(get(r, "status", "pending")))"))
     end
 
-    # -- Search in culture (if provided) --
-    culture = get(input, "culture", [])
-    for entry in culture
+    for entry in get(input, "culture", [])
         topic = get(entry, "topic", "")
         content = get(entry, "content", "")
         tags = get(entry, "tags", [])
         tags_str = join([string(t) for t in tags], " ")
-        combined = "$topic $content $tags_str"
-        s = score_text(combined)
-        if s > 0
-            excerpt = length(content) > 80 ? content[1:77] * "..." : content
-            source_info = ""
-            src = get(entry, "source", nothing)
-            if src !== nothing
-                sname = get(src, "name", "")
-                if sname != ""
-                    source_info = " (via $sname)"
-                end
+        push!(documents, "$topic $content $tags_str")
+        excerpt = length(content) > 80 ? content[1:77] * "..." : content
+        source_info = ""
+        src = get(entry, "source", nothing)
+        if src !== nothing
+            sname = get(src, "name", "")
+            if sname != ""
+                source_info = " (via $sname)"
             end
-            push!(results, Dict{String,Any}(
-                "type" => "culture",
-                "title" => "[$topic]$source_info",
-                "excerpt" => excerpt,
-                "score" => s
-            ))
+        end
+        push!(doc_meta, Dict{String,Any}("type" => "culture", "title" => "[$topic]$source_info", "excerpt" => excerpt))
+    end
+
+    if isempty(documents)
+        respond(Dict{String,Any}("results" => Any[], "total" => 0, "by_type" => Dict{String,Int}()))
+        return
+    end
+
+    model = build_tfidf(documents)
+    qvec = query_vector(model, query)
+    qnorm = norm(qvec)
+
+    scored = []
+    for i in 1:length(documents)
+        sim = cosine_sim(model.matrix[i, :], qvec, model.doc_norms[i], qnorm)
+        if sim > 0.01
+            push!(scored, (idx=i, score=round(sim, digits=3)))
         end
     end
 
-    # Sort by score descending
-    sort!(results, by=r -> -r["score"])
+    sort!(scored, by=x -> -x.score)
 
-    # Group by type for stats
+    results = Dict{String,Any}[]
     type_counts = Dict{String,Int}()
-    for r in results
-        t = r["type"]
+    for item in scored
+        meta = copy(doc_meta[item.idx])
+        meta["score"] = item.score
+        push!(results, meta)
+        t = meta["type"]
         type_counts[t] = get(type_counts, t, 0) + 1
     end
 
     respond(Dict{String,Any}(
         "results" => results[1:min(20, length(results))],
-        "total" => length(results),
+        "total" => length(scored),
         "by_type" => type_counts
     ))
+end
+
+# ============================================================
+# Cluster — Regroupement thématique des conversations
+# ============================================================
+
+function cmd_cluster(input)
+    episodes = get(input, "episodes", [])
+
+    if length(episodes) < 3
+        respond(Dict{String,Any}(
+            "clusters" => Any[],
+            "insights" => ["Pas assez de conversations pour regrouper (minimum 3)."]
+        ))
+        return
+    end
+
+    documents = String[]
+    for ep in episodes
+        summary = get(ep, "summary", "")
+        topics = get(ep, "topics", [])
+        topics_str = join([string(t) for t in topics], " ")
+        push!(documents, "$summary $topics_str")
+    end
+
+    model = build_tfidf(documents)
+
+    if size(model.matrix, 2) == 0
+        respond(Dict{String,Any}("clusters" => Any[], "insights" => ["Contenu insuffisant pour l'analyse."]))
+        return
+    end
+
+    k = auto_k(length(episodes))
+    assignments = kmeans_cluster(model.matrix, k)
+
+    cluster_map = Dict{Int, Vector{Int}}()
+    for (i, c) in enumerate(assignments)
+        if !haskey(cluster_map, c)
+            cluster_map[c] = Int[]
+        end
+        push!(cluster_map[c], i)
+    end
+
+    clusters = Dict{String,Any}[]
+    for (cluster_id, member_indices) in sort(collect(cluster_map))
+        cluster_topics = String[]
+        episode_ids = String[]
+        for idx in member_indices
+            ep = episodes[idx]
+            for t in get(ep, "topics", [])
+                push!(cluster_topics, string(t))
+            end
+            push!(episode_ids, string(get(ep, "id", "ep_$idx")))
+        end
+
+        topic_freq = Dict{String,Int}()
+        for t in cluster_topics
+            topic_freq[t] = get(topic_freq, t, 0) + 1
+        end
+        sorted_topics = sort(collect(topic_freq), by=x -> -x[2])
+        top_topics = [p[1] for p in sorted_topics[1:min(5, length(sorted_topics))]]
+
+        label = isempty(top_topics) ? "Groupe $cluster_id" : join(top_topics[1:min(3, length(top_topics))], ", ")
+
+        push!(clusters, Dict{String,Any}(
+            "id" => cluster_id,
+            "label" => label,
+            "episode_count" => length(member_indices),
+            "top_topics" => top_topics,
+            "episodes" => episode_ids
+        ))
+    end
+
+    sort!(clusters, by=c -> -c["episode_count"])
+
+    insights = String[]
+    push!(insights, "$(length(episodes)) conversations regroupees en $(length(clusters)) themes.")
+    if !isempty(clusters)
+        push!(insights, "Theme principal : \"$(clusters[1]["label"])\" ($(clusters[1]["episode_count"]) conversations).")
+        if clusters[end]["episode_count"] == 1
+            push!(insights, "Theme emergent : \"$(clusters[end]["label"])\" (1 seule conversation).")
+        end
+    end
+
+    respond(Dict{String,Any}("clusters" => clusters, "insights" => insights))
+end
+
+# ============================================================
+# Trends — Tendances temporelles
+# ============================================================
+
+function cmd_trends(input)
+    episodes = get(input, "episodes", [])
+    journal_entries = get(input, "journal", [])
+    activity = get(input, "activity", Dict{String,Any}())
+
+    insights = String[]
+    result = Dict{String,Any}()
+
+    # -- 1. Interaction frequency --
+    if !isempty(episodes)
+        daily_counts = Dict{String,Int}()
+        for ep in episodes
+            started = string(get(ep, "started_at", ""))
+            if length(started) >= 10
+                day = started[1:10]
+                daily_counts[day] = get(daily_counts, day, 0) + 1
+            end
+        end
+
+        if !isempty(daily_counts)
+            sorted_days = sort(collect(daily_counts), by=x -> x[1])
+            avg_per_day = round(mean([v for (_, v) in sorted_days]), digits=1)
+            result["avg_interactions_per_day"] = avg_per_day
+
+            if length(sorted_days) >= 14
+                recent = sum(v for (_, v) in sorted_days[end-6:end])
+                previous = sum(v for (_, v) in sorted_days[end-13:end-7])
+                if recent > previous * 1.3
+                    result["interaction_trend"] = "hausse"
+                    push!(insights, "Interactions en hausse (+$(round(Int, (recent/max(1,previous) - 1) * 100))% cette semaine).")
+                elseif recent < previous * 0.7
+                    result["interaction_trend"] = "baisse"
+                    push!(insights, "Interactions en baisse cette semaine.")
+                else
+                    result["interaction_trend"] = "stable"
+                    push!(insights, "Interactions stables.")
+                end
+            else
+                result["interaction_trend"] = "donnees_insuffisantes"
+            end
+        end
+    end
+
+    # -- 2. Topic evolution --
+    if length(episodes) >= 4
+        mid = max(1, div(length(episodes), 2))
+        recent_eps = episodes[1:mid]
+        older_eps = episodes[mid+1:end]
+
+        recent_topics = Dict{String,Int}()
+        older_topics = Dict{String,Int}()
+
+        for ep in recent_eps
+            for t in get(ep, "topics", [])
+                ts = string(t)
+                recent_topics[ts] = get(recent_topics, ts, 0) + 1
+            end
+        end
+        for ep in older_eps
+            for t in get(ep, "topics", [])
+                ts = string(t)
+                older_topics[ts] = get(older_topics, ts, 0) + 1
+            end
+        end
+
+        topic_trends = Dict{String,Any}[]
+        all_topics = union(Set(keys(recent_topics)), Set(keys(older_topics)))
+
+        for t in all_topics
+            r = get(recent_topics, t, 0)
+            o = get(older_topics, t, 0)
+            direction = r > o + 1 ? "rising" : (o > r + 1 ? "falling" : "stable")
+            push!(topic_trends, Dict{String,Any}("topic" => t, "direction" => direction, "recent" => r, "older" => o))
+        end
+
+        sort!(topic_trends, by=x -> (x["direction"] == "rising" ? 0 : x["direction"] == "falling" ? 2 : 1, -x["recent"]))
+        result["topic_trends"] = topic_trends[1:min(10, length(topic_trends))]
+
+        rising = filter(x -> x["direction"] == "rising", topic_trends)
+        if !isempty(rising)
+            push!(insights, "Sujet en hausse : \"$(rising[1]["topic"])\".")
+        end
+        falling = filter(x -> x["direction"] == "falling", topic_trends)
+        if !isempty(falling)
+            push!(insights, "Sujet en baisse : \"$(falling[1]["topic"])\".")
+        end
+    end
+
+    # -- 3. Mood trajectory --
+    if !isempty(journal_entries)
+        mood_trajectory = Dict{String,Any}[]
+        for entry in journal_entries
+            date = string(get(entry, "date", ""))
+            mood = string(get(entry, "mood", ""))
+            if date != "" && mood != ""
+                push!(mood_trajectory, Dict{String,Any}("date" => date, "mood" => mood))
+            end
+        end
+        sort!(mood_trajectory, by=x -> x["date"])
+        result["mood_trajectory"] = mood_trajectory
+
+        if length(mood_trajectory) >= 3
+            recent_moods = [m["mood"] for m in mood_trajectory[max(1, end-2):end]]
+            push!(insights, "Humeurs recentes : $(join(recent_moods, ", ")).")
+        end
+    end
+
+    # -- 4. Activity patterns --
+    hourly_scores = get(activity, "hourly_scores", Dict{String,Any}())
+    if !isempty(hourly_scores)
+        peaks = [(parse(Int, string(h)), get(v, "total", 0)) for (h, v) in hourly_scores if get(v, "total", 0) > 0]
+        sort!(peaks, by=x -> -x[2])
+        if !isempty(peaks)
+            top_hours = peaks[1:min(3, length(peaks))]
+            result["peak_hours"] = [Dict("hour" => h, "score" => s) for (h, s) in top_hours]
+            push!(insights, "Heures les plus actives : $(join(["$(h)h" for (h, _) in top_hours], ", ")).")
+        end
+    end
+
+    if isempty(insights)
+        push!(insights, "Pas encore assez de donnees pour degager des tendances.")
+    end
+
+    result["insights"] = insights
+    respond(result)
+end
+
+# ============================================================
+# Recommend — Moteur de recommandation
+# ============================================================
+
+function cmd_recommend(input)
+    episodes = get(input, "episodes", [])
+    facts = get(input, "facts", [])
+    culture = get(input, "culture", [])
+    library_history = get(input, "library_history", [])
+    journal = get(input, "journal", [])
+
+    insights = String[]
+    topics_to_explore = String[]
+    culture_gaps = String[]
+    book_suggestions = String[]
+    connections = Dict{String,Any}[]
+
+    # User interest profile from episodes
+    episode_topics = Dict{String,Int}()
+    for ep in episodes
+        for t in get(ep, "topics", [])
+            ts = string(t)
+            episode_topics[ts] = get(episode_topics, ts, 0) + 1
+        end
+    end
+
+    # Culture topics
+    culture_topics = Dict{String,Int}()
+    for entry in culture
+        topic = string(get(entry, "topic", ""))
+        if topic != ""
+            culture_topics[topic] = get(culture_topics, topic, 0) + 1
+        end
+    end
+
+    # Gaps: discussed but not in culture
+    for (topic, count) in sort(collect(episode_topics), by=x -> -x[2])
+        if count >= 2 && !haskey(culture_topics, topic)
+            push!(culture_gaps, topic)
+        end
+    end
+    if !isempty(culture_gaps)
+        push!(insights, "$(length(culture_gaps)) sujet(s) frequemment discutes mais absents de votre culture.")
+    end
+
+    # Underexplored: in culture but rare in episodes
+    for (topic, count) in culture_topics
+        if count >= 2 && get(episode_topics, topic, 0) <= 1
+            push!(topics_to_explore, topic)
+        end
+    end
+    if !isempty(topics_to_explore)
+        push!(insights, "$(length(topics_to_explore)) sujet(s) culturels a explorer davantage.")
+    end
+
+    # Book genre suggestions
+    if !isempty(library_history)
+        genre_counts = Dict{String,Int}()
+        for book in library_history
+            genre = string(get(book, "genre", "divers"))
+            genre_counts[genre] = get(genre_counts, genre, 0) + 1
+        end
+        top_genres = sort(collect(genre_counts), by=x -> -x[2])
+
+        all_genres = ["fiction", "philosophie", "science", "histoire", "poesie", "theatre", "essai", "biographie"]
+        read_genres = Set(keys(genre_counts))
+        for g in all_genres
+            if !(g in read_genres)
+                push!(book_suggestions, "Explorez le genre \"$g\" — absent de vos lectures.")
+            end
+        end
+
+        if !isempty(top_genres)
+            push!(insights, "Genre favori : \"$(top_genres[1][1])\" ($(top_genres[1][2]) livre(s)).")
+        end
+    end
+
+    # Cross-domain connections
+    for f in facts
+        content_lc = lowercase(string(get(f, "content", "")))
+        for (topic, _) in culture_topics
+            if occursin(lowercase(topic), content_lc)
+                push!(connections, Dict{String,Any}(
+                    "from" => "fait: $(get(f, "subject", ""))",
+                    "to" => "culture: $topic",
+                    "reason" => "Le fait mentionne ce sujet culturel."
+                ))
+                break
+            end
+        end
+    end
+
+    if isempty(insights)
+        push!(insights, "Continuez d'enrichir vos conversations et votre culture pour de meilleures recommandations.")
+    end
+
+    respond(Dict{String,Any}(
+        "topics_to_explore" => topics_to_explore[1:min(5, length(topics_to_explore))],
+        "culture_gaps" => culture_gaps[1:min(5, length(culture_gaps))],
+        "book_suggestions" => book_suggestions[1:min(5, length(book_suggestions))],
+        "connections" => connections[1:min(10, length(connections))],
+        "insights" => insights
+    ))
+end
+
+# ============================================================
+# Smart Prioritize — Scoring prédictif des tâches
+# ============================================================
+
+function cmd_smart_prioritize(input)
+    project = get(input, "project", Dict{String,Any}())
+    now_ts = get(input, "now", round(Int, time()))
+    name = get(project, "name", "?")
+    tasks = get(project, "tasks", [])
+
+    pending = filter(t -> get(t, "status", "") == "pending", tasks)
+    done = filter(t -> get(t, "status", "") == "done", tasks)
+
+    if isempty(pending)
+        respond(Dict{String,Any}("ranked" => Any[], "insights" => ["Aucune tache en attente sur \"$name\"."], "velocity" => Dict{String,Any}()))
+        return
+    end
+
+    # Learn from completed tasks
+    completion_times = Float64[]
+    priority_times = Dict{Int, Vector{Float64}}()
+    quick_keywords = Dict{String,Int}()
+    slow_keywords = Dict{String,Int}()
+
+    for t in done
+        created = string(get(t, "created_at", ""))
+        completed = string(get(t, "completed_at", ""))
+        if created != "" && completed != "" && length(created) >= 19 && length(completed) >= 19
+            try
+                dt_c = DateTime(created[1:19])
+                dt_d = DateTime(completed[1:19])
+                days = (datetime2unix(dt_d) - datetime2unix(dt_c)) / 86400
+                if days >= 0
+                    push!(completion_times, days)
+                    prio = get(t, "priority", 1)
+                    if !haskey(priority_times, prio)
+                        priority_times[prio] = Float64[]
+                    end
+                    push!(priority_times[prio], days)
+
+                    kws = tokenize(string(get(t, "description", "")))
+                    for kw in kws
+                        if days < 3
+                            quick_keywords[kw] = get(quick_keywords, kw, 0) + 1
+                        elseif days > 7
+                            slow_keywords[kw] = get(slow_keywords, kw, 0) + 1
+                        end
+                    end
+                end
+            catch
+            end
+        end
+    end
+
+    # Velocity
+    velocity = Dict{String,Any}()
+    if !isempty(completion_times)
+        velocity["avg_completion_days"] = round(mean(completion_times), digits=1)
+        if !isempty(done)
+            first_ts = nothing
+            for t in done
+                c = string(get(t, "created_at", ""))
+                if length(c) >= 19
+                    try
+                        dt = DateTime(c[1:19])
+                        ts = round(Int, datetime2unix(dt))
+                        if first_ts === nothing || ts < first_ts
+                            first_ts = ts
+                        end
+                    catch
+                    end
+                end
+            end
+            if first_ts !== nothing
+                span_weeks = max(1, (now_ts - first_ts) / (86400 * 7))
+                velocity["tasks_per_week"] = round(length(done) / span_weeks, digits=1)
+            end
+        end
+    end
+
+    # Score pending tasks
+    scored = []
+    for t in pending
+        desc = string(get(t, "description", ""))
+        priority = get(t, "priority", 1)
+        created = string(get(t, "created_at", ""))
+
+        score = Float64(priority * 10)
+        age_days = 0.0
+
+        if length(created) >= 19
+            try
+                dt = DateTime(created[1:19])
+                age_days = (now_ts - round(Int, datetime2unix(dt))) / 86400
+                score += min(30.0, age_days)
+            catch
+            end
+        end
+
+        # Urgency keywords
+        ld = lowercase(desc)
+        urgent_words = ["urgent", "critique", "asap", "immediat", "bloqu", "bug", "fix", "erreur", "panne"]
+        for w in urgent_words
+            if occursin(w, ld)
+                score += 15.0
+                break
+            end
+        end
+
+        # Effort estimation
+        task_kws = tokenize(desc)
+        qk = sum(get(quick_keywords, kw, 0) for kw in task_kws; init=0)
+        sk = sum(get(slow_keywords, kw, 0) for kw in task_kws; init=0)
+        effort = qk > sk + 1 ? "rapide" : (sk > qk + 1 ? "long" : "moyen")
+
+        # Procrastination risk
+        risk = age_days > 14 ? "eleve" : (age_days > 7 || sk > qk ? "moyen" : "faible")
+
+        # Reason
+        reasons = String[]
+        priority >= 4 && push!(reasons, "priorite haute")
+        age_days > 7 && push!(reasons, "$(round(Int, age_days)) jours d'attente")
+        effort == "rapide" && push!(reasons, "tache rapide")
+        reason = isempty(reasons) ? "ordre standard" : join(reasons, ", ")
+
+        push!(scored, (task=t, score=score, age_days=age_days, effort=effort, risk=risk, reason=reason))
+    end
+
+    sort!(scored, by=x -> -x.score)
+
+    ranked = Dict{String,Any}[]
+    for (i, item) in enumerate(scored)
+        push!(ranked, Dict{String,Any}(
+            "rank" => i,
+            "description" => get(item.task, "description", ""),
+            "priority" => get(item.task, "priority", 1),
+            "score" => round(item.score, digits=1),
+            "effort" => item.effort,
+            "risk" => item.risk,
+            "reason" => item.reason
+        ))
+    end
+
+    insights = String[]
+    if !isempty(scored)
+        top = scored[1]
+        push!(insights, "Tache recommandee : \"$(get(top.task, "description", ""))\" (score $(round(top.score, digits=1)), effort $(top.effort)).")
+    end
+    high_risk = count(x -> x.risk == "eleve", scored)
+    high_risk > 0 && push!(insights, "$(high_risk) tache(s) a risque de procrastination eleve.")
+    quick_wins = count(x -> x.effort == "rapide", scored)
+    quick_wins > 0 && push!(insights, "$(quick_wins) tache(s) rapide(s) identifiee(s).")
+    if haskey(velocity, "tasks_per_week")
+        push!(insights, "Velocite : $(velocity["tasks_per_week"]) taches/semaine, ~$(velocity["avg_completion_days"]) jours par tache.")
+    end
+
+    respond(Dict{String,Any}("ranked" => ranked, "insights" => insights, "velocity" => velocity))
 end
 
 # ============================================================
@@ -1399,6 +1962,14 @@ function main()
                 cmd_prioritize(input)
             elseif cmd == "extract_culture"
                 cmd_extract_culture(input)
+            elseif cmd == "cluster"
+                cmd_cluster(input)
+            elseif cmd == "trends"
+                cmd_trends(input)
+            elseif cmd == "recommend"
+                cmd_recommend(input)
+            elseif cmd == "smart_prioritize"
+                cmd_smart_prioritize(input)
             else
                 respond_error("Unknown command: $cmd")
             end

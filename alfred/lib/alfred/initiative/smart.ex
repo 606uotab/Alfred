@@ -155,7 +155,7 @@ defmodule Alfred.Initiative.Smart do
 
   # -- Persistence --
 
-  defp load_data do
+  def load_data do
     case Storage.read(@activity_file) do
       data when is_map(data) and map_size(data) > 0 -> data
       _ -> %{"interactions" => [], "hourly_scores" => %{}, "optimal_windows" => []}

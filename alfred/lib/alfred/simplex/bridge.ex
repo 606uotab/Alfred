@@ -895,6 +895,105 @@ defmodule Alfred.Simplex.Bridge do
     end
   end
 
+  defp execute_command("trends", _, _state) do
+    {:async, fn ->
+      episodes = Alfred.Memory.Episodic.list_episodes()
+      facts = Alfred.Memory.Semantic.all_facts()
+      activity = Alfred.Initiative.Smart.load_data()
+
+      journal_dir = Path.join([System.user_home!(), ".alfred", "data", "journal"])
+      journal = case File.ls(journal_dir) do
+        {:ok, files} ->
+          files
+          |> Enum.filter(&String.ends_with?(&1, ".json"))
+          |> Enum.sort(:desc)
+          |> Enum.take(30)
+          |> Enum.map(fn f ->
+            case Alfred.Storage.Local.read(Path.join("journal", f)) do
+              data when is_map(data) -> data
+              _ -> nil
+            end
+          end)
+          |> Enum.reject(&is_nil/1)
+        _ -> []
+      end
+
+      case Alfred.Brain.Port.send_command(%{
+             cmd: "trends",
+             episodes: episodes,
+             facts: facts,
+             activity_log: activity["interactions"] || [],
+             journal: journal,
+             now: System.system_time(:second)
+           }) do
+        {:ok, resp} ->
+          format_trends_response(resp)
+        {:error, msg} -> "Cerveau indisponible : #{msg}"
+      end
+    end}
+  end
+
+  defp execute_command("cluster", _, _state) do
+    {:async, fn ->
+      episodes = Alfred.Memory.Episodic.list_episodes()
+
+      case Alfred.Brain.Port.send_command(%{
+             cmd: "cluster",
+             episodes: episodes,
+             now: System.system_time(:second)
+           }) do
+        {:ok, resp} ->
+          clusters = resp["clusters"] || []
+          insights = resp["insights"] || []
+
+          if clusters == [] do
+            "Pas assez de données pour dégager des groupes."
+          else
+            lines = ["Carte des conversations :\n"]
+
+            lines = lines ++ Enum.map(clusters, fn c ->
+              label = c["label"] || "Groupe"
+              count = c["episode_count"] || 0
+              topics = c["top_topics"] || []
+              "#{label} (#{count}) : #{Enum.join(topics, ", ")}"
+            end)
+
+            lines = if insights != [], do: lines ++ [""] ++ insights, else: lines
+            Enum.join(lines, "\n")
+          end
+        {:error, msg} -> "Cerveau indisponible : #{msg}"
+      end
+    end}
+  end
+
+  defp execute_command("recommend", _, _state) do
+    {:async, fn ->
+      episodes = Alfred.Memory.Episodic.list_episodes()
+      facts = Alfred.Memory.Semantic.all_facts()
+
+      library = case Alfred.Storage.Local.read("library/history.json") do
+        data when is_list(data) -> data
+        data when is_map(data) -> Map.get(data, "books", [])
+        _ -> []
+      end
+
+      case Alfred.Brain.Port.send_command(%{
+             cmd: "recommend",
+             episodes: episodes,
+             facts: facts,
+             culture: [],
+             library: library,
+             journal: [],
+             patterns: [],
+             now: System.system_time(:second)
+           }) do
+        {:ok, resp} ->
+          format_recommend_response(resp)
+        {:error, msg} -> "Cerveau indisponible : #{msg}"
+      end
+    end}
+  end
+
   defp execute_command("help", _, _) do
     """
     Commandes disponibles :
@@ -904,6 +1003,9 @@ defmodule Alfred.Simplex.Bridge do
     /library next — Commencer un nouveau livre
     /library read — Lire la portion du jour
     /brain — Briefing du cerveau (Julia)
+    /trends — Tendances temporelles
+    /cluster — Carte des conversations
+    /recommend — Recommandations personnalisées
     /cortex — Productivité (R)
     /soul — Traits d'âme et convictions
     /dashboard — URL du dashboard web
@@ -966,6 +1068,77 @@ defmodule Alfred.Simplex.Bridge do
   end
 
   defp format_backup_size(_), do: "inconnue"
+
+  defp format_trends_response(resp) do
+    lines = ["Tendances Alfred :\n"]
+
+    interaction = resp["interaction_trend"] || %{}
+    lines = if interaction != %{} do
+      dir = interaction["direction"] || "stable"
+      recent = interaction["recent_7d"] || 0
+      previous = interaction["previous_7d"] || 0
+      icon = case dir do
+        "hausse" -> "📈"
+        "baisse" -> "📉"
+        _ -> "➡️"
+      end
+      lines ++ ["#{icon} Interactions : #{dir} (#{recent} vs #{previous})"]
+    else
+      lines
+    end
+
+    topics = resp["topic_trends"] || []
+    lines = if topics != [] do
+      topic_lines = Enum.take(topics, 5) |> Enum.map(fn t ->
+        "  #{t["topic"]} (#{t["trend"]})"
+      end)
+      lines ++ ["\nSujets :"] ++ topic_lines
+    else
+      lines
+    end
+
+    mood = resp["mood_trajectory"] || %{}
+    lines = if mood != %{} do
+      lines ++ ["\nHumeur : #{mood["current"] || "neutre"} (#{mood["trend"] || "stable"})"]
+    else
+      lines
+    end
+
+    insights = resp["insights"] || []
+    lines = if insights != [], do: lines ++ [""] ++ insights, else: lines
+
+    Enum.join(lines, "\n")
+  end
+
+  defp format_recommend_response(resp) do
+    lines = ["Recommandations Alfred :\n"]
+
+    topics = resp["topics_to_explore"] || []
+    lines = if topics != [] do
+      lines ++ ["Sujets à explorer :"] ++ Enum.map(topics, &("  • #{&1}"))
+    else
+      lines
+    end
+
+    gaps = resp["culture_gaps"] || []
+    lines = if gaps != [] do
+      lines ++ ["\nLacunes culturelles :"] ++ Enum.map(gaps, &("  • #{&1}"))
+    else
+      lines
+    end
+
+    books = resp["book_suggestions"] || []
+    lines = if books != [] do
+      lines ++ ["\nSuggestions lecture :"] ++ Enum.map(books, &("  • #{&1}"))
+    else
+      lines
+    end
+
+    insights = resp["insights"] || []
+    lines = if insights != [], do: lines ++ [""] ++ insights, else: lines
+
+    Enum.join(lines, "\n")
+  end
 
   defp format_command_uptime(seconds) do
     cond do

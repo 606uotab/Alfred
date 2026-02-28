@@ -109,6 +109,15 @@ defmodule Alfred.CLI do
         query = Enum.join(rest, " ")
         Alfred.Brain.Commands.handle_search(query)
 
+      ["trends"] ->
+        Alfred.Brain.Commands.handle_trends()
+
+      ["cluster"] ->
+        Alfred.Brain.Commands.handle_cluster()
+
+      ["recommend"] ->
+        Alfred.Brain.Commands.handle_recommend()
+
       ["prioritize" | rest] when rest != [] ->
         project = Enum.join(rest, " ")
         Alfred.Brain.Commands.handle_prioritize(project)
@@ -869,13 +878,16 @@ defmodule Alfred.CLI do
       alfred memory episodes                     Historique des conversations
       alfred memory forget <id>                  Oublier un fait
 
-      alfred search <mots>                       Recherche universelle
+      alfred search <mots>                       Recherche sémantique (TF-IDF)
+      alfred trends                              Tendances temporelles
+      alfred cluster                             Carte des conversations
+      alfred recommend                           Recommandations personnalisées
       alfred briefing                           Synthèse quotidienne
       alfred think culture                       Analyse de la culture
       alfred think about <projet>                Analyse intelligente
       alfred summarize <projet>                  Résumé du projet
       alfred suggest                             Suggestions transversales
-      alfred prioritize <projet>                 Priorisation intelligente
+      alfred prioritize <projet>                 Priorisation intelligente (smart)
 
       alfred cortex trends                      Tendances des interactions
       alfred cortex stats                       Statistiques de mémoire

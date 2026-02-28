@@ -267,55 +267,320 @@ defmodule Alfred.Brain.Commands do
 
   @doc """
   Priorisation intelligente des tâches d'un projet.
+  Essaie d'abord smart_prioritize (avec historique), fallback sur prioritize.
   """
   def handle_prioritize(project_name) do
     unless Projects.exists?(project_name) do
       Butler.say("Je suis navré Monsieur, le projet \"#{project_name}\" n'existe pas.")
     else
       project_data = build_project_data(project_name)
+      episodes = collect_search_episodes() |> Enum.take(-50)
+      patterns = collect_patterns()
 
-      case Brain.send_command(%{cmd: "prioritize", project: project_data, now: now()}) do
+      payload = %{
+        cmd: "smart_prioritize",
+        project: project_data,
+        episodes: episodes,
+        patterns: patterns,
+        now: now()
+      }
+
+      case Brain.send_command(payload) do
         {:ok, resp} ->
-          ranked = Map.get(resp, "ranked", [])
-          insights = Map.get(resp, "insights", [])
-          actions = Map.get(resp, "actions", [])
+          print_smart_prioritize(resp, project_name)
 
-          Butler.say("Monsieur, voici l'ordre de priorité recommandé pour \"#{project_name}\" :\n")
+        {:error, _} ->
+          # Fallback sur l'ancien prioritize
+          case Brain.send_command(%{cmd: "prioritize", project: project_data, now: now()}) do
+            {:ok, resp} ->
+              print_legacy_prioritize(resp, project_name)
 
-          Enum.each(ranked, fn item ->
-            rank = Map.get(item, "rank", 0)
-            desc = Map.get(item, "description", "")
-            prio = Map.get(item, "priority", 1)
-            score = Map.get(item, "score", 0)
-            age = Map.get(item, "age_days", 0)
-
-            age_str = if age > 0, do: " · #{trunc(age)}j", else: ""
-            IO.puts("  #{rank}. #{desc}  [P#{prio}, score #{score}#{age_str}]")
-          end)
-
-          IO.puts("")
-
-          if length(insights) > 0 do
-            Enum.each(insights, fn i ->
-              IO.puts("  💡 #{i}")
-            end)
-
-            IO.puts("")
+            {:error, msg} ->
+              Butler.say("Je suis navré Monsieur, mon cerveau rencontre une difficulté : #{msg}")
           end
-
-          if length(actions) > 0 do
-            IO.puts("  📌 Actions recommandées :")
-
-            Enum.each(actions, fn a ->
-              IO.puts("    #{a}")
-            end)
-
-            IO.puts("")
-          end
-
-        {:error, msg} ->
-          Butler.say("Je suis navré Monsieur, mon cerveau rencontre une difficulté : #{msg}")
       end
+    end
+  end
+
+  defp print_smart_prioritize(resp, project_name) do
+    ranked = Map.get(resp, "ranked", [])
+    velocity = Map.get(resp, "velocity", %{})
+    insights = Map.get(resp, "insights", [])
+
+    Butler.say("Monsieur, voici la priorisation intelligente pour \"#{project_name}\" :\n")
+
+    Enum.each(ranked, fn item ->
+      desc = Map.get(item, "description", "")
+      prio = Map.get(item, "priority", 1)
+      score = Map.get(item, "score", 0)
+      effort = Map.get(item, "effort", "moyen")
+      risk = Map.get(item, "risk", "normal")
+      reason = Map.get(item, "reason", "")
+
+      risk_icon = case risk do
+        "élevé" -> "🔴"
+        "normal" -> "🟡"
+        _ -> "🟢"
+      end
+
+      IO.puts("  #{risk_icon} #{desc}")
+      IO.puts("    P#{prio} · score #{score} · effort #{effort} · #{reason}")
+    end)
+
+    IO.puts("")
+
+    if velocity != %{} do
+      tasks_week = Map.get(velocity, "tasks_per_week", 0)
+      if tasks_week > 0, do: IO.puts("  ⚡ Vélocité : #{tasks_week} tâches/semaine")
+      IO.puts("")
+    end
+
+    if length(insights) > 0 do
+      Enum.each(insights, fn i -> IO.puts("  💡 #{i}") end)
+      IO.puts("")
+    end
+  end
+
+  defp print_legacy_prioritize(resp, project_name) do
+    ranked = Map.get(resp, "ranked", [])
+    insights = Map.get(resp, "insights", [])
+    actions = Map.get(resp, "actions", [])
+
+    Butler.say("Monsieur, voici l'ordre de priorité recommandé pour \"#{project_name}\" :\n")
+
+    Enum.each(ranked, fn item ->
+      rank = Map.get(item, "rank", 0)
+      desc = Map.get(item, "description", "")
+      prio = Map.get(item, "priority", 1)
+      score = Map.get(item, "score", 0)
+      age = Map.get(item, "age_days", 0)
+
+      age_str = if age > 0, do: " · #{trunc(age)}j", else: ""
+      IO.puts("  #{rank}. #{desc}  [P#{prio}, score #{score}#{age_str}]")
+    end)
+
+    IO.puts("")
+
+    if length(insights) > 0 do
+      Enum.each(insights, fn i -> IO.puts("  💡 #{i}") end)
+      IO.puts("")
+    end
+
+    if length(actions) > 0 do
+      IO.puts("  📌 Actions recommandées :")
+      Enum.each(actions, fn a -> IO.puts("    #{a}") end)
+      IO.puts("")
+    end
+  end
+
+  @doc """
+  Tendances temporelles — analyse les trends d'interaction, topics, mood.
+  """
+  def handle_trends do
+    Butler.say("Analyse des tendances en cours...\n")
+
+    episodes = collect_search_episodes()
+    facts = collect_search_facts()
+    activity = Alfred.Initiative.Smart.load_data()
+    journal = collect_journal_entries()
+
+    payload = %{
+      cmd: "trends",
+      episodes: episodes,
+      facts: facts,
+      activity_log: activity["interactions"] || [],
+      journal: journal,
+      now: now()
+    }
+
+    case Brain.send_command(payload) do
+      {:ok, resp} ->
+        print_trends(resp)
+
+      {:error, msg} ->
+        Butler.say("Je suis navré Monsieur, mon cerveau rencontre une difficulté : #{msg}")
+    end
+  end
+
+  defp print_trends(resp) do
+    interaction = Map.get(resp, "interaction_trend", %{})
+    topics = Map.get(resp, "topic_trends", [])
+    mood = Map.get(resp, "mood_trajectory", %{})
+    activity = Map.get(resp, "activity_patterns", %{})
+    insights = Map.get(resp, "insights", [])
+
+    # Interaction trend
+    if interaction != %{} do
+      direction = Map.get(interaction, "direction", "stable")
+      icon = case direction do
+        "hausse" -> "📈"
+        "baisse" -> "📉"
+        _ -> "➡️"
+      end
+      IO.puts("  #{icon} Interactions : #{direction}")
+      recent = Map.get(interaction, "recent_7d", 0)
+      previous = Map.get(interaction, "previous_7d", 0)
+      IO.puts("    7 derniers jours : #{recent} (vs #{previous} avant)")
+      IO.puts("")
+    end
+
+    # Topic trends
+    if length(topics) > 0 do
+      IO.puts("  📊 Tendances des sujets :")
+      Enum.each(Enum.take(topics, 10), fn t ->
+        name = Map.get(t, "topic", "?")
+        trend = Map.get(t, "trend", "stable")
+        icon = case trend do
+          "rising" -> "🔺"
+          "falling" -> "🔻"
+          _ -> "▪️"
+        end
+        IO.puts("    #{icon} #{name} (#{trend})")
+      end)
+      IO.puts("")
+    end
+
+    # Mood trajectory
+    if mood != %{} do
+      current = Map.get(mood, "current", "neutre")
+      trend = Map.get(mood, "trend", "stable")
+      IO.puts("  🎭 Humeur : #{current} (#{trend})")
+      IO.puts("")
+    end
+
+    # Activity patterns
+    if activity != %{} do
+      peak = Map.get(activity, "peak_hours", [])
+      if peak != [] do
+        IO.puts("  🕐 Heures de pointe : #{Enum.join(peak, ", ")}h")
+        IO.puts("")
+      end
+    end
+
+    if length(insights) > 0 do
+      Enum.each(insights, fn i -> IO.puts("  💡 #{i}") end)
+      IO.puts("")
+    end
+  end
+
+  @doc """
+  Clustering des conversations — regroupe les épisodes par thèmes.
+  """
+  def handle_cluster do
+    Butler.say("Cartographie des conversations en cours...\n")
+
+    episodes = collect_search_episodes()
+
+    payload = %{
+      cmd: "cluster",
+      episodes: episodes,
+      now: now()
+    }
+
+    case Brain.send_command(payload) do
+      {:ok, resp} ->
+        print_clusters(resp)
+
+      {:error, msg} ->
+        Butler.say("Je suis navré Monsieur, mon cerveau rencontre une difficulté : #{msg}")
+    end
+  end
+
+  defp print_clusters(resp) do
+    clusters = Map.get(resp, "clusters", [])
+    insights = Map.get(resp, "insights", [])
+
+    if clusters == [] do
+      Butler.say("Pas assez de données pour dégager des groupes thématiques, Monsieur.")
+    else
+      IO.puts("  Groupes thématiques détectés :\n")
+
+      Enum.each(clusters, fn c ->
+        label = Map.get(c, "label", "Groupe")
+        count = Map.get(c, "episode_count", 0)
+        topics = Map.get(c, "top_topics", [])
+
+        IO.puts("  🗂️  #{label} (#{count} conversations)")
+        if topics != [] do
+          IO.puts("      Thèmes : #{Enum.join(topics, ", ")}")
+        end
+      end)
+
+      IO.puts("")
+    end
+
+    if length(insights) > 0 do
+      Enum.each(insights, fn i -> IO.puts("  💡 #{i}") end)
+      IO.puts("")
+    end
+  end
+
+  @doc """
+  Recommandations personnalisées — suggestions de topics, culture, lectures.
+  """
+  def handle_recommend do
+    Butler.say("Analyse de votre profil en cours...\n")
+
+    episodes = collect_search_episodes()
+    facts = collect_search_facts()
+    journal = collect_journal_entries()
+    patterns = collect_patterns()
+    library = collect_library_history()
+
+    payload = %{
+      cmd: "recommend",
+      episodes: episodes,
+      facts: facts,
+      culture: [],
+      library: library,
+      journal: journal,
+      patterns: patterns,
+      now: now()
+    }
+
+    case Brain.send_command(payload) do
+      {:ok, resp} ->
+        print_recommendations(resp)
+
+      {:error, msg} ->
+        Butler.say("Je suis navré Monsieur, mon cerveau rencontre une difficulté : #{msg}")
+    end
+  end
+
+  defp print_recommendations(resp) do
+    topics = Map.get(resp, "topics_to_explore", [])
+    gaps = Map.get(resp, "culture_gaps", [])
+    books = Map.get(resp, "book_suggestions", [])
+    connections = Map.get(resp, "connections", [])
+    insights = Map.get(resp, "insights", [])
+
+    if topics != [] do
+      IO.puts("  🔍 Sujets à explorer :")
+      Enum.each(topics, fn t -> IO.puts("    • #{t}") end)
+      IO.puts("")
+    end
+
+    if gaps != [] do
+      IO.puts("  📚 Lacunes culturelles :")
+      Enum.each(gaps, fn g -> IO.puts("    • #{g}") end)
+      IO.puts("")
+    end
+
+    if books != [] do
+      IO.puts("  📖 Suggestions de lecture :")
+      Enum.each(books, fn b -> IO.puts("    • #{b}") end)
+      IO.puts("")
+    end
+
+    if connections != [] do
+      IO.puts("  🔗 Connexions intéressantes :")
+      Enum.each(connections, fn c -> IO.puts("    • #{c}") end)
+      IO.puts("")
+    end
+
+    if length(insights) > 0 do
+      Enum.each(insights, fn i -> IO.puts("  💡 #{i}") end)
+      IO.puts("")
     end
   end
 
@@ -576,6 +841,38 @@ defmodule Alfred.Brain.Commands do
   end
 
   defp print_stats(_), do: :ok
+
+  # -- Data collectors for new features --
+
+  defp collect_journal_entries do
+    dir = Path.join([System.user_home!(), ".alfred", "data", "journal"])
+
+    case File.ls(dir) do
+      {:ok, files} ->
+        files
+        |> Enum.filter(&String.ends_with?(&1, ".json"))
+        |> Enum.sort(:desc)
+        |> Enum.take(30)
+        |> Enum.map(fn f ->
+          case Alfred.Storage.Local.read(Path.join("journal", f)) do
+            data when is_map(data) -> data
+            _ -> nil
+          end
+        end)
+        |> Enum.reject(&is_nil/1)
+
+      _ ->
+        []
+    end
+  end
+
+  defp collect_library_history do
+    case Alfred.Storage.Local.read("library/history.json") do
+      data when is_list(data) -> data
+      data when is_map(data) -> Map.get(data, "books", [])
+      _ -> []
+    end
+  end
 
   defp now, do: System.system_time(:second)
 end
