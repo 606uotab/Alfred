@@ -174,36 +174,26 @@ defmodule Alfred.News do
   end
 
   defp build_sources_footer(articles) do
-    # Colonnes : n° | source (max 14) | titre (max 40) | url courte (max 30)
-    rows =
+    items =
       articles
       |> Enum.with_index(1)
       |> Enum.map(fn {a, i} ->
-        src = truncate(a["source"] || "?", 14)
-        title = truncate(a["title"] || "?", 40)
-        url = short_url(a["url"], 30)
-        " #{pad(i, 2)} | #{pad_r(src, 14)} | #{pad_r(title, 40)} | #{url}"
+        title = truncate(a["title"] || "?", 60)
+        source = a["source"] || "?"
+        url = clean_url(a["url"])
+        "#{i}. #{title}\n   _#{source}_ — #{url}"
       end)
 
-    header = " #  | Source         | Titre                                    | URL"
-    sep =    " ---|----------------|------------------------------------------|------"
-
-    "---\nSources (Poulailler) :\n#{header}\n#{sep}\n" <> Enum.join(rows, "\n")
+    "*******\n*Sources (Poulailler) :*\n\n" <> Enum.join(items, "\n\n")
   end
 
   defp truncate(str, max) do
     if String.length(str) > max, do: String.slice(str, 0, max - 1) <> "~", else: str
   end
 
-  defp short_url(nil, _max), do: ""
-  defp short_url("", _max), do: ""
-  defp short_url(url, max) do
-    clean = url |> String.replace(~r{^https?://}, "") |> String.replace(~r{^www\.}, "")
-    truncate(clean, max)
-  end
-
-  defp pad(n, width), do: n |> Integer.to_string() |> String.pad_leading(width)
-  defp pad_r(str, width), do: String.pad_trailing(str, width)
+  defp clean_url(nil), do: ""
+  defp clean_url(""), do: ""
+  defp clean_url(url), do: url |> String.replace(~r{^https?://}, "") |> String.replace(~r{^www\.}, "")
 
   # -- Sauvegarde --
 
