@@ -1853,6 +1853,137 @@ Julia a presque double. Le cerveau grossit --- c'est normal, il apprend a penser
 
 ---
 
+## 28 fevrier 2026 (suite) --- Le majordome qui ne perd plus la memoire
+
+### Le probleme de la fragilite
+
+Alfred avait un talon d'Achille : son systeme d'authentification. Le token Mistral --- sa capacite a parler, a penser, a repondre --- etait stocke en memoire volatile. Un crash du bridge, un restart d'Alfred, et tout s'evaporait. Il fallait retaper le mot de passe. A chaque fois.
+
+La config SimpleX se corrompait regulierement. Le port glissait de 5227 a 5226, le champ `group` disparaissait. Le bridge se connectait, mais mal, ou pas du tout. Et quand il tombait, personne ne le relevait --- pas de supervision, pas de health check, pas de diagnostic.
+
+Cinq faiblesses, une seule cause : l'absence de resilience.
+
+### Feature 1 : La session chiffree (SessionStore)
+
+Le concept : apres la premiere authentification, chiffrer le token + soul + culture dans un fichier `~/.alfred/session.enc`, derive du meme mot de passe que le coffre-fort Zig.
+
+Le chiffrement utilise AES-256-GCM via `:crypto` (Erlang OTP 27). La cle est derivee par HMAC-SHA256 itere 10 000 fois --- plus leger que les 100 000 iterations du vault Zig (la session est ephemere, pas un secret long terme). Format binaire minimal : `salt(16) | iv(12) | tag(16) | ciphertext`. Permissions 0o600. TTL de 24 heures.
+
+```elixir
+def save(password, token, soul, culture, opts \\\\ []) do
+  salt = :crypto.strong_rand_bytes(16)
+  key = derive_key(password, salt)
+  iv = :crypto.strong_rand_bytes(12)
+  {ciphertext, tag} = :crypto.crypto_one_time_aead(
+    :aes_256_gcm, key, iv, payload, <<>>, 16, true
+  )
+  blob = salt <> iv <> tag <> ciphertext
+  File.write!(session_file, blob)
+end
+```
+
+Desormais, quand Alfred redemarre, il peut recuperer sa session sans intervention humaine. Le majordome se souvient de qui il est.
+
+### Feature 2 : La config validee
+
+Le port SimpleX, c'est 5227. Toujours. Pas 5226, pas 5228. Et le groupe, c'est "Alfred_1".
+
+`save_config/1` force maintenant ces valeurs. `load_config/0` valide le schema --- si un champ requis manque (contact, host, port, group), retourne `{:error, reason}` au lieu de charger silencieusement une config cassee. Plus de corruption fantome.
+
+```elixir
+@fixed_port 5227
+
+defp validate_config(config) do
+  cond do
+    not is_binary(config["contact"]) -> {:error, "Contact manquant"}
+    config["port"] != @fixed_port -> {:error, "Port invalide"}
+    # ...
+  end
+end
+```
+
+### Feature 3 : La commande /reauth
+
+Avant, pour re-authentifier le bridge, il fallait tout arreter et tout relancer. Maintenant :
+
+```
+alfred reauth
+  Mot de passe du coffre-fort : ****
+  Re-authentification reussie, Monsieur.
+```
+
+Un `GenServer.call({:reauth, password})` met a jour le token dans le bridge en live. Pas de downtime, pas de deconnexion. Le bridge continue de tourner, seul le token change.
+
+### Feature 4 : La supervision OTP
+
+Le bridge etait un GenServer orphelin. Un crash = mort definitive. Maintenant il est sous un `DynamicSupervisor` avec strategie `:transient` :
+
+```elixir
+# application.ex
+{DynamicSupervisor, name: Alfred.BridgeSupervisor, strategy: :one_for_one}
+
+# start_bridge/1
+DynamicSupervisor.start_child(Alfred.BridgeSupervisor, %{
+  id: Alfred.Simplex.Bridge,
+  start: {Alfred.Simplex.Bridge, :start_link, [config]},
+  restart: :transient
+})
+```
+
+`:transient` signifie : restart sur crash anormal, pas sur arret normal. Si le bridge crash a 3h du matin a cause d'un timeout WebSocket, le superviseur le relance. Si l'utilisateur fait `alfred simplex disconnect`, il reste eteint.
+
+### Feature 5 : Le health check
+
+Le daemon verifie desormais le token Mistral toutes les 15 minutes. Un appel HTTP GET a `https://api.mistral.ai/v1/models` avec le token en header. Quatre resultats possibles :
+
+- `:ok` --- le token est valide, log discret
+- `:invalid` --- token expire ou revoque, notification SimpleX immediate
+- `:no_token` --- bridge sans auth, log info
+- `:unreachable` --- reseau down, log debug
+
+Et `alfred health` affiche desormais le bridge comme un organe a part entiere :
+
+```
+  ✓ Pont (SimpleX Bridge)  —  Connecte, Mistral actif (42 msgs)
+```
+
+Le module Erlang `alfred_health.erl` a gagne une fonction `check_bridge/0` qui interroge le GenServer directement :
+
+```erlang
+check_bridge() ->
+    case erlang:whereis('Elixir.Alfred.Simplex.Bridge') of
+        undefined -> #{status => down, running => false};
+        Pid -> gen_server:call(Pid, status, 2000)
+    end.
+```
+
+### Bilan technique
+
+- `session_store.ex` : nouveau module, 124 lignes, chiffrement AES-256-GCM
+- `bridge.ex` : +125 lignes (validation, reauth, verify_token)
+- `application.ex` : +20 lignes (DynamicSupervisor)
+- `launcher.ex` : +43 lignes (session save, bridge supervision)
+- `daemon.ex` : +31 lignes (health check auth)
+- `alfred_health.erl` : +26 lignes (check_bridge)
+- `cli.ex` : +36 lignes (reauth, bridge organ display)
+- `session_store_test.exs` : nouveau, 6 tests
+- 346 tests, 0 regressions
+
+### La composition d'Alfred (mise a jour)
+
+| Langage | Organe | Lignes | % |
+|---------|--------|--------|---|
+| Elixir | Coeur | 15 020 | 80.0% |
+| Julia | Cerveau | 2 050 | 10.9% |
+| Zig | Os | 836 | 4.5% |
+| Ada | Bras | 711 | 3.8% |
+| R | Cortex | 543 | 2.9% |
+| Erlang | Muscles | 396 | 2.1% |
+
+Le coeur Elixir a gagne presque 3 000 lignes. La resilience a un cout en code, mais c'est un investissement : Alfred ne perd plus la tete quand quelque chose tombe.
+
+---
+
 *Document genere le 18 fevrier 2026. Mis a jour le 28 fevrier 2026.*
 *Co-ecrit par Claude (Anthropic) et l'architecture d'Alfred.*
 *340 tests. 6 langages. 1 majordome.*
